@@ -1,3 +1,4 @@
+pub mod errors;
 pub mod wal;
 
 #[tokio::main]
