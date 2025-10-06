@@ -1,8 +1,9 @@
+pub mod http;
 pub mod wal;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Hello, world!");
+    http::run_server().await;
 
     Ok(())
 }
