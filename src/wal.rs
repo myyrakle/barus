@@ -167,12 +167,23 @@ impl WALManager {
 
     // read records from the WAL
     // read range: last_checkpoint_record_id < records... <= last_record_id
-    pub async fn read_records(&self) -> errors::Result<Vec<WalRecord>> {
+    pub async fn read_records(
+        &self,
+        _start_segment_id: u32, // need state.last_checkpoint_segment_id
+        _end_segment_id: u32,   // need state.last_segment_id
+        _start_record_id: u64,  // need state.last_checkpoint_record_id
+        _end_record_id: u64,    // need state.last_record_id
+    ) -> errors::Result<Vec<WalRecord>> {
         unimplemented!("<WAL Read records logic>");
     }
 
-    pub fn checkpoint(&self) -> errors::Result<()> {
-        unimplemented!("<Checkpoint logic>");
+    // Move the checkpoint to the specified segment and record ID
+    pub async fn move_checkpoint(&mut self, segment_id: u32, record_id: u64) -> errors::Result<()> {
+        self.state.last_checkpoint_segment_id = segment_id;
+        self.state.last_checkpoint_record_id = record_id;
+        self.state.save(&self.base_path).await?;
+
+        Ok(())
     }
 
     async fn get_current_segment_file_name(&self) -> errors::Result<String> {
