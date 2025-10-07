@@ -41,14 +41,14 @@ impl WalGlobalState {
     pub async fn save(&self, base_path: &Path) -> errors::Result<()> {
         let wal_state_path = base_path.join(WAL_STATE_PATH);
         let data = serde_json::to_vec_pretty(self)
-            .map_err(|e| errors::Errors::WalStateDecodeError(e.to_string()))?;
+            .map_err(|e| errors::Errors::WalRecordEncodeError(e.to_string()))?;
 
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
             .open(wal_state_path)
-            .map_err(|e| errors::Errors::WalStateReadError(e.to_string()))?;
+            .map_err(|e| errors::Errors::WalStateWriteError(e.to_string()))?;
 
         file.write_all(&data)
             .map_err(|e| errors::Errors::WalStateWriteError(e.to_string()))?;
@@ -135,7 +135,7 @@ impl WALManager {
     }
 
     // Append a new record to the WAL
-    pub async fn append(&self, record: &WalRecord) -> errors::Result<()> {
+    pub async fn append(&mut self, record: &WalRecord) -> errors::Result<()> {
         let encoded = self.codec.encode(record)?;
 
         let current_segment_size = self.get_current_segment_file_size().await?;
@@ -145,7 +145,7 @@ impl WALManager {
         }
 
         let segment_file_name = self.get_current_segment_file_name().await?;
-        let segment_file_path = Path::new(WAL_DIRECTORY).join(segment_file_name);
+        let segment_file_path = self.base_path.join(WAL_DIRECTORY).join(segment_file_name);
 
         let mut file = std::fs::OpenOptions::new()
             .create(true)

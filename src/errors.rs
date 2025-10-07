@@ -6,6 +6,7 @@ pub enum Errors {
     WalRecordWriteError(String),
     WalStateReadError(String),
     WalStateDecodeError(String),
+    WalStateEncodeError(String),
     WalStateWriteError(String),
 }
 
