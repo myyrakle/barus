@@ -1,5 +1,6 @@
 #[derive(Debug)]
 pub enum Errors {
+    WalInitializationError(String),
     WalRecordEncodeError(String),
     WalRecordDecodeError(String),
     WalRecordWriteError(String),

@@ -1,4 +1,7 @@
-use std::{io::Write, path::Path};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use crate::errors;
 
@@ -10,9 +13,9 @@ pub const WAL_STATE_PATH: &str = "wal/state.json";
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct WalGlobalState {
     pub last_record_id: u64,
-    pub last_segment_id: u64,
-    pub last_checkpoint_segment_id: u64,
     pub last_checkpoint_record_id: u64,
+    pub last_segment_id: u32,
+    pub last_checkpoint_segment_id: u32,
 }
 
 impl WalGlobalState {
@@ -91,33 +94,44 @@ impl WalRecordCodec for WalRecordJsonCodec {
 
 pub struct WALManager {
     codec: Box<dyn WalRecordCodec + Send + Sync>,
+    base_path: PathBuf,
     state: WalGlobalState,
 }
 
 impl WALManager {
-    pub fn new(codec: Box<dyn WalRecordCodec + Send + Sync>) -> Self {
+    pub fn new(codec: Box<dyn WalRecordCodec + Send + Sync>, base_path: PathBuf) -> Self {
         Self {
             codec,
+            base_path,
             state: Default::default(),
         }
     }
 
+    // Initialize the WAL system (create directories, load state, etc.)
     pub async fn initialize(&self) -> errors::Result<()> {
-        let state = if Path::new(WAL_STATE_PATH).exists() {
-            let data = std::fs::read(WAL_STATE_PATH)
-                .map_err(|e| errors::Errors::WalStateReadError(e.to_string()))?;
-            serde_json::from_slice(&data)
-                .map_err(|e| errors::Errors::WalStateDecodeError(e.to_string()))?
-        } else {
-            WalGlobalState {
-                last_record_id: 0,
-                last_segment_id: 0,
-                last_checkpoint_segment_id: 0,
-                last_checkpoint_record_id: 0,
-            }
-        };
+        // 1. create WAL directory if not exists
+        let wal_dir_path = self.base_path.join(WAL_DIRECTORY);
+        if !wal_dir_path.exists() {
+            std::fs::create_dir_all(&wal_dir_path)
+                .map_err(|e| errors::Errors::WalInitializationError(e.to_string()))?;
+        }
 
-        unimplemented!("<WAL Initialization logic>");
+        // 2. create WAL state file if not exists
+        let wal_state_path = self.base_path.join(WAL_STATE_PATH);
+        if !wal_state_path.exists() {
+            let initial_state = WalGlobalState::default();
+            initial_state.save(&self.base_path).await?;
+        }
+
+        Ok(())
+    }
+
+    // Load WAL states from the state file
+    pub async fn load(&mut self) -> errors::Result<()> {
+        // Load the WAL global state from the state file
+        self.state = WalGlobalState::load(&self.base_path).await?;
+
+        Ok(())
     }
 
     // Append a new record to the WAL
