@@ -41,7 +41,7 @@ async fn get_value(Query(params): Query<HashMap<String, String>>) -> impl IntoRe
 
     let response = GetValueResponse {
         key: key.clone(),
-        value: format!("Value for key: {}", key),
+        value: format!("Value for key: {key}"),
     };
 
     Response::builder()
@@ -86,7 +86,7 @@ async fn put_value(Json(req): Json<serde_json::Value>) -> impl IntoResponse {
     };
 
     let response = PutValueResponse {
-        message: format!("Put Value: {} = {}", key, value),
+        message: format!("Put Value: {key} = {value}"),
     };
 
     Response::builder()
