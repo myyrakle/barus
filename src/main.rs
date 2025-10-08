@@ -1,5 +1,6 @@
 pub mod errors;
 pub mod http;
+pub mod lock;
 pub mod wal;
 
 #[tokio::main]
