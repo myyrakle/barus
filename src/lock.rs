@@ -25,6 +25,12 @@ impl Drop for LockGuard<'_> {
     }
 }
 
+impl Default for TryLock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TryLock {
     pub fn new() -> Self {
         Self {
@@ -33,7 +39,7 @@ impl TryLock {
     }
 
     // Attempt to acquire the lock. Returns Some(LockGuard) if successful, None if already locked.
-    pub fn try_lock_guard(&self) -> Option<LockGuard> {
+    pub fn try_lock_guard(&self) -> Option<LockGuard<'_>> {
         if !self.locked.swap(true, Ordering::Acquire) {
             Some(LockGuard::new(self))
         } else {

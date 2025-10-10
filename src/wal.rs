@@ -33,15 +33,15 @@ impl WalSegmentID {
     }
 }
 
-impl Into<u128> for WalSegmentID {
-    fn into(self) -> u128 {
-        self.0
+impl From<WalSegmentID> for u128 {
+    fn from(val: WalSegmentID) -> Self {
+        val.0
     }
 }
 
-impl Into<String> for &WalSegmentID {
-    fn into(self) -> String {
-        format!("{:024X}", self.0)
+impl From<&WalSegmentID> for String {
+    fn from(val: &WalSegmentID) -> Self {
+        format!("{:024X}", val.0)
     }
 }
 
@@ -238,6 +238,8 @@ impl WALManager {
         file.sync_all()
             .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
 
+        // TODO: record ID management
+
         Ok(())
     }
 
@@ -286,7 +288,6 @@ impl WALManager {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
-            .create(true)
             .open(&new_segment_file_path)
             .map_err(|e| {
                 errors::Errors::WalSegmentFileOpenError(format!(
