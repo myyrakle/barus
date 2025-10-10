@@ -191,7 +191,7 @@ impl WALManager {
         self.state = WalGlobalState::load(&self.base_path).await?;
 
         // Load file stream for the current segment
-        let segment_file_name = self.get_current_segment_file_name().await?;
+        let segment_file_name = self.get_current_segment_file_name()?;
         let segment_file_path = self.base_path.join(WAL_DIRECTORY).join(segment_file_name);
 
         let file = OpenOptions::new()
@@ -220,7 +220,7 @@ impl WALManager {
             self.new_segment_file().await?;
         }
 
-        let segment_file_name = self.get_current_segment_file_name().await?;
+        let segment_file_name = self.get_current_segment_file_name()?;
         let segment_file_path = self.base_path.join(WAL_DIRECTORY).join(segment_file_name);
 
         let mut file = std::fs::OpenOptions::new()
@@ -261,14 +261,14 @@ impl WALManager {
         segment_id: u128,
         record_id: u64,
     ) -> errors::Result<()> {
-        self.state.last_checkpoint_segment_id.0 = segment_id;
+        self.state.last_checkpoint_segment_id = WalSegmentID::new(segment_id);
         self.state.last_checkpoint_record_id = record_id;
         self.state.save(&self.base_path).await?;
 
         Ok(())
     }
 
-    async fn get_current_segment_file_name(&self) -> errors::Result<String> {
+    fn get_current_segment_file_name(&self) -> errors::Result<String> {
         let segment_id_str: String = (&self.state.last_segment_id).into();
         Ok(segment_id_str)
     }
@@ -288,6 +288,7 @@ impl WALManager {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
+            .truncate(true)
             .open(&new_segment_file_path)
             .map_err(|e| {
                 errors::Errors::WalSegmentFileOpenError(format!(
@@ -302,6 +303,9 @@ impl WALManager {
                 e
             ))
         })?;
+        self.state.last_segment_file_offset = 0;
+
+        self.state.save(&self.base_path).await?;
 
         self.current_segment_file = Some(file);
 
