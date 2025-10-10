@@ -190,6 +190,23 @@ impl WALManager {
         // Load the WAL global state from the state file
         self.state = WalGlobalState::load(&self.base_path).await?;
 
+        // Load file stream for the current segment
+        let segment_file_name = self.get_current_segment_file_name().await?;
+        let segment_file_path = self.base_path.join(WAL_DIRECTORY).join(segment_file_name);
+
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&segment_file_path)
+            .map_err(|e| {
+                errors::Errors::WalSegmentFileOpenError(format!(
+                    "Failed to open WAL segment file: {}",
+                    e
+                ))
+            })?;
+
+        self.current_segment_file = Some(file);
+
         Ok(())
     }
 
@@ -250,7 +267,8 @@ impl WALManager {
     }
 
     async fn get_current_segment_file_name(&self) -> errors::Result<String> {
-        unimplemented!("<Get last WAL segment file name logic>");
+        let segment_id_str: String = (&self.state.last_segment_id).into();
+        Ok(segment_id_str)
     }
 
     async fn get_current_segment_file_size(&self) -> errors::Result<usize> {
