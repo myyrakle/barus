@@ -182,6 +182,33 @@ impl WALManager {
             initial_state.save(&self.base_path).await?;
         }
 
+        // 3. create initial segment file if wal directory is empty
+        let entries = std::fs::read_dir(&wal_dir_path)
+            .map_err(|e| errors::Errors::WalInitializationError(e.to_string()))?;
+        if entries.count() == 0 {
+            let segment_file_name = format!("{:024X}", 0u128);
+            let segment_file_path = wal_dir_path.join(segment_file_name);
+
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .open(&segment_file_path)
+                .map_err(|e| {
+                    errors::Errors::WalSegmentFileOpenError(format!(
+                        "Failed to open WAL segment file: {}",
+                        e
+                    ))
+                })?;
+
+            file.set_len(WAL_SEGMENT_SIZE as u64).map_err(|e| {
+                errors::Errors::WalSegmentFileOpenError(format!(
+                    "Failed to set length for initial WAL segment file: {}",
+                    e
+                ))
+            })?;
+        }
+
         Ok(())
     }
 
@@ -288,6 +315,7 @@ impl WALManager {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
+            .create(true)
             .truncate(true)
             .open(&new_segment_file_path)
             .map_err(|e| {
