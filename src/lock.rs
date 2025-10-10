@@ -61,10 +61,7 @@ impl TryLock {
 #[cfg(test)]
 mod tests {
     use super::TryLock;
-    use std::sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    };
+    use std::sync::{Arc, atomic::Ordering};
 
     #[test]
     fn test_try_lock() {
@@ -90,18 +87,23 @@ mod tests {
     #[tokio::test]
     async fn test_try_lock_concurrently() {
         let lock = TryLock::new();
-        let success_count = Arc::new(AtomicBool::new(false));
+        let success_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let concurrent_holders = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let mut handles = vec![];
 
         // 10개의 태스크가 동시에 락을 획득하려고 시도
         for _ in 0..10 {
             let lock = lock.clone();
             let success_count = success_count.clone();
+            let concurrent_holders = concurrent_holders.clone();
             let handle = tokio::spawn(async move {
                 if let Some(_guard) = lock.try_lock_guard() {
                     // 락을 성공적으로 획득한 경우
-                    success_count.store(true, Ordering::Relaxed);
+                    success_count.fetch_add(1, Ordering::Relaxed);
+                    let current = concurrent_holders.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(current, 0, "상호 배제 위반: 동시에 여러 스레드가 락을 보유");
                     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+                    concurrent_holders.fetch_sub(1, Ordering::SeqCst);
                     // _guard가 drop되면서 자동으로 unlock됨
                 }
             });
@@ -114,7 +116,7 @@ mod tests {
         }
 
         // 적어도 하나의 태스크는 락을 획득했어야 함
-        assert!(success_count.load(Ordering::Relaxed));
+        assert!(success_count.load(Ordering::Relaxed) > 0);
     }
 
     #[tokio::test]
