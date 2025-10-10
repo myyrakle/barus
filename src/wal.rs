@@ -1,4 +1,5 @@
 use std::{
+    fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -10,12 +11,68 @@ pub const WAL_SEGMENT_SIZE: usize = 1024 * 1024 * 16; // 16MB
 pub const WAL_DIRECTORY: &str = "wal";
 pub const WAL_STATE_PATH: &str = "wal/state.json";
 
+// 24 length hex ID (ex 000000010000000D000000EA)
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub struct WalSegmentID(u128);
+
+impl std::ops::Add<u128> for WalSegmentID {
+    type Output = WalSegmentID;
+
+    fn add(self, rhs: u128) -> Self::Output {
+        WalSegmentID(self.0 + rhs)
+    }
+}
+
+impl WalSegmentID {
+    pub fn new(id: u128) -> Self {
+        WalSegmentID(id)
+    }
+
+    pub fn increment(&mut self) {
+        self.0 += 1;
+    }
+}
+
+impl Into<u128> for WalSegmentID {
+    fn into(self) -> u128 {
+        self.0
+    }
+}
+
+impl Into<String> for &WalSegmentID {
+    fn into(self) -> String {
+        format!("{:024X}", self.0)
+    }
+}
+
+impl TryFrom<&str> for WalSegmentID {
+    type Error = errors::Errors;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        if value.len() != 24 {
+            return Err(errors::Errors::WalSegmentIDParseError(
+                "Invalid segment ID length".to_string(),
+            ));
+        }
+
+        let id = u128::from_str_radix(value, 16).map_err(|e| {
+            errors::Errors::WalSegmentIDParseError(format!("Failed to parse segment ID: {}", e))
+        })?;
+
+        Ok(WalSegmentID(id))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub struct WalRecordID(u64);
+
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct WalGlobalState {
     pub last_record_id: u64,
     pub last_checkpoint_record_id: u64,
-    pub last_segment_id: u32,
-    pub last_checkpoint_segment_id: u32,
+    pub last_segment_id: WalSegmentID,
+    pub last_checkpoint_segment_id: WalSegmentID,
+    pub last_segment_file_offset: u64,
 }
 
 impl WalGlobalState {
@@ -96,6 +153,7 @@ pub struct WALManager {
     codec: Box<dyn WalRecordCodec + Send + Sync>,
     base_path: PathBuf,
     state: WalGlobalState,
+    current_segment_file: Option<std::fs::File>,
 }
 
 impl WALManager {
@@ -104,6 +162,7 @@ impl WALManager {
             codec,
             base_path,
             state: Default::default(),
+            current_segment_file: None,
         }
     }
 
@@ -178,8 +237,12 @@ impl WALManager {
     }
 
     // Move the checkpoint to the specified segment and record ID
-    pub async fn move_checkpoint(&mut self, segment_id: u32, record_id: u64) -> errors::Result<()> {
-        self.state.last_checkpoint_segment_id = segment_id;
+    pub async fn move_checkpoint(
+        &mut self,
+        segment_id: u128,
+        record_id: u64,
+    ) -> errors::Result<()> {
+        self.state.last_checkpoint_segment_id.0 = segment_id;
         self.state.last_checkpoint_record_id = record_id;
         self.state.save(&self.base_path).await?;
 
@@ -194,7 +257,35 @@ impl WALManager {
         unimplemented!("<Get last WAL segment file size logic>");
     }
 
-    async fn new_segment_file(&self) -> errors::Result<()> {
-        unimplemented!("<Create new WAL segment file name logic>");
+    async fn new_segment_file(&mut self) -> errors::Result<()> {
+        self.state.last_segment_id.increment();
+
+        let new_segment_id = &self.state.last_segment_id;
+        let new_segment_id_str: String = new_segment_id.into();
+
+        let new_segment_file_path = self.base_path.join(WAL_DIRECTORY).join(new_segment_id_str);
+
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&new_segment_file_path)
+            .map_err(|e| {
+                errors::Errors::WalSegmentFileOpenError(format!(
+                    "Failed to create new WAL segment file: {}",
+                    e
+                ))
+            })?;
+
+        file.set_len(WAL_SEGMENT_SIZE as u64).map_err(|e| {
+            errors::Errors::WalSegmentFileOpenError(format!(
+                "Failed to set length for new WAL segment file: {}",
+                e
+            ))
+        })?;
+
+        self.current_segment_file = Some(file);
+
+        Ok(())
     }
 }

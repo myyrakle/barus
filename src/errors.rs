@@ -8,6 +8,8 @@ pub enum Errors {
     WalStateDecodeError(String),
     WalStateEncodeError(String),
     WalStateWriteError(String),
+    WalSegmentIDParseError(String),
+    WalSegmentFileOpenError(String),
 }
 
 pub type Result<T> = std::result::Result<T, Errors>;
