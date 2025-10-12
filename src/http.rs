@@ -1,21 +1,33 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::Query,
     response::{IntoResponse, Response},
-    routing::put,
+    routing::{delete, put},
 };
+
+use crate::db::DBEngine;
 
 pub async fn run_server() {
     println!("Server is running...");
 
     use axum::{Router, routing::get};
 
+    let mut db_engine = DBEngine::new("data".into());
+    db_engine
+        .initialize()
+        .await
+        .expect("DB Initialization failed");
+
+    let wrapped_db = Arc::new(db_engine);
+
     let app = Router::new()
         .route("/", get(root))
         .route("/value", get(get_value))
-        .route("/value", put(put_value));
+        .route("/value", put(put_value))
+        .route("/value", delete(delete_value))
+        .layer(axum::extract::Extension(wrapped_db));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
@@ -26,12 +38,15 @@ async fn root() -> &'static str {
 }
 
 #[derive(serde::Serialize)]
-pub struct GetValueResponse {
-    pub key: String,
+pub struct GetValueResponse<'a> {
+    pub key: &'a str,
     pub value: String,
 }
 
-async fn get_value(Query(params): Query<HashMap<String, String>>) -> impl IntoResponse {
+async fn get_value(
+    Query(params): Query<HashMap<String, String>>,
+    Extension(db): Extension<Arc<DBEngine>>,
+) -> impl IntoResponse {
     let Some(key) = params.get("key") else {
         return Response::builder()
             .status(400)
@@ -39,16 +54,29 @@ async fn get_value(Query(params): Query<HashMap<String, String>>) -> impl IntoRe
             .unwrap();
     };
 
-    let response = GetValueResponse {
-        key: key.clone(),
-        value: format!("Value for key: {key}"),
-    };
+    let result = db.get(&key).await;
 
-    Response::builder()
-        .status(200)
-        .header("Content-Type", "application/json")
-        .body(serde_json::to_string(&response).unwrap())
-        .unwrap()
+    match result {
+        Ok(res) => {
+            let response = GetValueResponse {
+                key,
+                value: String::from_utf8_lossy(&res.value).to_string(),
+            };
+
+            Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(serde_json::to_string(&response).unwrap())
+                .unwrap()
+        }
+        Err(e) => {
+            let error_message = format!("Error retrieving key {}: {:?}", key, e);
+            Response::builder()
+                .status(500)
+                .body(error_message.into())
+                .unwrap()
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -62,7 +90,10 @@ pub struct PutValueResponse {
     pub message: String,
 }
 
-async fn put_value(Json(req): Json<serde_json::Value>) -> impl IntoResponse {
+async fn put_value(
+    Extension(db): Extension<Arc<DBEngine>>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
     let Some(key) = req
         .get("key")
         .and_then(|v| v.as_str())
@@ -85,13 +116,59 @@ async fn put_value(Json(req): Json<serde_json::Value>) -> impl IntoResponse {
             .unwrap();
     };
 
-    let response = PutValueResponse {
-        message: format!("Put Value: {key} = {value}"),
+    let result = db.put(&key, value.as_bytes()).await;
+
+    match result {
+        Ok(_) => {
+            let response = PutValueResponse {
+                message: format!("Put Value: {key} = {value}"),
+            };
+
+            Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(serde_json::to_string(&response).unwrap())
+                .unwrap()
+        }
+        Err(e) => {
+            let error_message = format!("Error storing key {}: {:?}", key, e);
+            Response::builder()
+                .status(500)
+                .body(error_message.into())
+                .unwrap()
+        }
+    }
+}
+
+async fn delete_value(
+    Query(params): Query<HashMap<String, String>>,
+    Extension(db): Extension<Arc<DBEngine>>,
+) -> impl IntoResponse {
+    let Some(key) = params.get("key") else {
+        return Response::builder()
+            .status(400)
+            .body("Missing 'key' parameter".to_string())
+            .unwrap();
     };
 
-    Response::builder()
-        .status(200)
-        .header("Content-Type", "application/json")
-        .body(serde_json::to_string(&response).unwrap())
-        .unwrap()
+    let result = db.delete(&key).await;
+
+    match result {
+        Ok(_) => {
+            let response = format!("Deleted key: {key}");
+
+            Response::builder()
+                .status(200)
+                .header("Content-Type", "text/plain")
+                .body(response.into())
+                .unwrap()
+        }
+        Err(e) => {
+            let error_message = format!("Error deleting key {}: {:?}", key, e);
+            Response::builder()
+                .status(500)
+                .body(error_message.into())
+                .unwrap()
+        }
+    }
 }

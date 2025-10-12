@@ -1,4 +1,5 @@
 use std::{
+    fmt::Debug,
     fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
@@ -154,6 +155,15 @@ pub struct WALManager {
     base_path: PathBuf,
     state: WalGlobalState,
     current_segment_file: Option<std::fs::File>,
+}
+
+impl Debug for WALManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WALManager")
+            .field("base_path", &self.base_path)
+            .field("state", &self.state)
+            .finish()
+    }
 }
 
 impl WALManager {
