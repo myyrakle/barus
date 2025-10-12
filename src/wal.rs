@@ -3,8 +3,10 @@ use std::{
     fs::{File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
+
+use tokio::sync::Mutex;
 
 use crate::errors;
 
@@ -255,7 +257,7 @@ impl WALManager {
                 ))
             })?;
 
-        self.write_state.lock().unwrap().current_segment_file = Some(file);
+        self.write_state.lock().await.current_segment_file = Some(file);
 
         Ok(())
     }
@@ -268,7 +270,7 @@ impl WALManager {
                 loop {
                     tokio::time::sleep(duration).await;
 
-                    let state = write_state.lock().unwrap();
+                    let state = write_state.lock().await;
 
                     // fsync current segment file
                     #[allow(clippy::collapsible_if)]
@@ -287,12 +289,7 @@ impl WALManager {
 
     // Append a new record to the WAL
     pub async fn append(&mut self, mut record: WalRecord) -> errors::Result<()> {
-        let write_mutex = self.write_state.clone();
-
-        let mut write_state = write_mutex
-            .lock()
-            .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
-
+        // 1. Serialize the record (thread free)
         let new_record_id = self.state.last_record_id + 1;
         record.record_id = new_record_id;
         let encoded = self.codec.encode(&record)?;
@@ -300,7 +297,14 @@ impl WALManager {
         let payload_size = encoded.len();
         let header_bytes = (payload_size as u32).to_be_bytes();
 
-        let current_segment_size = self.get_current_segment_file_size().await?;
+        // 2. Get Write Lock
+        let write_mutex = self.write_state.clone();
+
+        let mut write_state = write_mutex.lock().await;
+
+        // 3. Check if need to new segment file.
+        // If current segment file size + new record size > WAL_SEGMENT_SIZE, create new segment file
+        let current_segment_size = self.get_current_segment_file_size()?;
 
         if current_segment_size + encoded.len() > WAL_SEGMENT_SIZE {
             write_state.current_segment_file = Some(self.new_segment_file().await?);
@@ -312,14 +316,13 @@ impl WALManager {
             )
         })?;
 
+        // 4. Write the record (header + payload + newline)
         file.write_all(&header_bytes)
             .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
         file.write_all(&encoded)
             .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
-        file.write_all(b"\n")
-            .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
 
-        // fsync
+        // 5. fsync (Optional)
         if self.always_use_fsync {
             file.sync_all()
                 .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
@@ -358,8 +361,13 @@ impl WALManager {
         Ok(segment_id_str)
     }
 
-    async fn get_current_segment_file_size(&self) -> errors::Result<usize> {
-        unimplemented!("<Get last WAL segment file size logic>");
+    fn get_current_segment_file_size(&self) -> errors::Result<usize> {
+        self.state.last_segment_file_offset.try_into().map_err(|e| {
+            errors::Errors::WalSegmentFileOpenError(format!(
+                "Failed to get current segment file size: {}",
+                e
+            ))
+        })
     }
 
     async fn new_segment_file(&mut self) -> errors::Result<File> {
