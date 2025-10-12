@@ -10,7 +10,7 @@ use crate::errors;
 pub const WAL_SEGMENT_SIZE: usize = 1024 * 1024 * 16; // 16MB
 
 pub const WAL_DIRECTORY: &str = "wal";
-pub const WAL_STATE_PATH: &str = "wal/state.json";
+pub const WAL_STATE_PATH: &str = "wal_state.json";
 
 // 24 length hex ID (ex 000000010000000D000000EA)
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
@@ -195,6 +195,7 @@ impl WALManager {
         // 3. create initial segment file if wal directory is empty
         let entries = std::fs::read_dir(&wal_dir_path)
             .map_err(|e| errors::Errors::WalInitializationError(e.to_string()))?;
+
         if entries.count() == 0 {
             let segment_file_name = format!("{:024X}", 0u128);
             let segment_file_path = wal_dir_path.join(segment_file_name);
