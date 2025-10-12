@@ -1,4 +1,5 @@
 use std::{
+    fmt::Debug,
     fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
@@ -156,6 +157,15 @@ pub struct WALManager {
     current_segment_file: Option<std::fs::File>,
 }
 
+impl Debug for WALManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WALManager")
+            .field("base_path", &self.base_path)
+            .field("state", &self.state)
+            .finish()
+    }
+}
+
 impl WALManager {
     pub fn new(codec: Box<dyn WalRecordCodec + Send + Sync>, base_path: PathBuf) -> Self {
         Self {
@@ -193,6 +203,7 @@ impl WALManager {
                 .read(true)
                 .write(true)
                 .create(true)
+                .truncate(true)
                 .open(&segment_file_path)
                 .map_err(|e| {
                     errors::Errors::WalSegmentFileOpenError(format!(
