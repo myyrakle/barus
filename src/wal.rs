@@ -271,6 +271,7 @@ impl WALManager {
                     let state = write_state.lock().unwrap();
 
                     // fsync current segment file
+                    #[allow(clippy::collapsible_if)]
                     if let Some(file) = &state.current_segment_file {
                         if let Err(e) = file.sync_all() {
                             eprintln!("Failed to fsync WAL segment file: {}", e);
