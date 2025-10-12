@@ -54,7 +54,7 @@ async fn get_value(
             .unwrap();
     };
 
-    let result = db.get(&key).await;
+    let result = db.get(key).await;
 
     match result {
         Ok(res) => {
@@ -73,7 +73,7 @@ async fn get_value(
             let error_message = format!("Error retrieving key {}: {:?}", key, e);
             Response::builder()
                 .status(500)
-                .body(error_message.into())
+                .body(error_message)
                 .unwrap()
         }
     }
@@ -134,7 +134,7 @@ async fn put_value(
             let error_message = format!("Error storing key {}: {:?}", key, e);
             Response::builder()
                 .status(500)
-                .body(error_message.into())
+                .body(error_message)
                 .unwrap()
         }
     }
@@ -151,7 +151,7 @@ async fn delete_value(
             .unwrap();
     };
 
-    let result = db.delete(&key).await;
+    let result = db.delete(key).await;
 
     match result {
         Ok(_) => {
@@ -160,14 +160,14 @@ async fn delete_value(
             Response::builder()
                 .status(200)
                 .header("Content-Type", "text/plain")
-                .body(response.into())
+                .body(response)
                 .unwrap()
         }
         Err(e) => {
             let error_message = format!("Error deleting key {}: {:?}", key, e);
             Response::builder()
                 .status(500)
-                .body(error_message.into())
+                .body(error_message)
                 .unwrap()
         }
     }

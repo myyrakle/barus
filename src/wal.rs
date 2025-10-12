@@ -203,6 +203,7 @@ impl WALManager {
                 .read(true)
                 .write(true)
                 .create(true)
+                .truncate(true)
                 .open(&segment_file_path)
                 .map_err(|e| {
                     errors::Errors::WalSegmentFileOpenError(format!(
