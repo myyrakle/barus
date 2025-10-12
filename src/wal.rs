@@ -1,8 +1,9 @@
 use std::{
     fmt::Debug,
-    fs::OpenOptions,
+    fs::{File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
 
 use crate::errors;
@@ -154,6 +155,12 @@ pub struct WALManager {
     codec: Box<dyn WalRecordCodec + Send + Sync>,
     base_path: PathBuf,
     state: WalGlobalState,
+    background_fsync_duration: Option<std::time::Duration>,
+    always_use_fsync: bool,
+    write_state: Arc<Mutex<WALWriteState>>,
+}
+
+pub struct WALWriteState {
     current_segment_file: Option<std::fs::File>,
 }
 
@@ -172,7 +179,11 @@ impl WALManager {
             codec,
             base_path,
             state: Default::default(),
-            current_segment_file: None,
+            write_state: Arc::new(Mutex::new(WALWriteState {
+                current_segment_file: None,
+            })),
+            always_use_fsync: false,
+            background_fsync_duration: Some(std::time::Duration::from_secs(10)),
         }
     }
 
@@ -244,40 +255,74 @@ impl WALManager {
                 ))
             })?;
 
-        self.current_segment_file = Some(file);
+        self.write_state.lock().unwrap().current_segment_file = Some(file);
+
+        Ok(())
+    }
+
+    pub fn start_background(&self) -> errors::Result<()> {
+        if let Some(duration) = self.background_fsync_duration {
+            let write_state = self.write_state.clone();
+
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(duration).await;
+
+                    let state = write_state.lock().unwrap();
+
+                    // fsync current segment file
+                    if let Some(file) = &state.current_segment_file {
+                        if let Err(e) = file.sync_all() {
+                            eprintln!("Failed to fsync WAL segment file: {}", e);
+                            // Handle error (e.g., retry, log, etc.)
+                        }
+                    }
+                }
+            });
+        }
 
         Ok(())
     }
 
     // Append a new record to the WAL
-    pub async fn append(&mut self, record: &WalRecord) -> errors::Result<()> {
-        let encoded = self.codec.encode(record)?;
+    pub async fn append(&mut self, mut record: WalRecord) -> errors::Result<()> {
+        let write_mutex = self.write_state.clone();
+
+        let mut write_state = write_mutex
+            .lock()
+            .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
+
+        let new_record_id = self.state.last_record_id + 1;
+        record.record_id = new_record_id;
+        let encoded = self.codec.encode(&record)?;
+
+        let payload_size = encoded.len();
+        let header_bytes = (payload_size as u32).to_be_bytes();
 
         let current_segment_size = self.get_current_segment_file_size().await?;
 
         if current_segment_size + encoded.len() > WAL_SEGMENT_SIZE {
-            self.new_segment_file().await?;
+            write_state.current_segment_file = Some(self.new_segment_file().await?);
         }
 
-        let segment_file_name = self.get_current_segment_file_name()?;
-        let segment_file_path = self.base_path.join(WAL_DIRECTORY).join(segment_file_name);
+        let file = write_state.current_segment_file.as_mut().ok_or_else(|| {
+            errors::Errors::WalSegmentFileOpenError(
+                "Current WAL segment file is not opened".to_string(),
+            )
+        })?;
 
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(segment_file_path)
+        file.write_all(&header_bytes)
             .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
-
         file.write_all(&encoded)
             .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
         file.write_all(b"\n")
             .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
 
         // fsync
-        file.sync_all()
-            .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
-
-        // TODO: record ID management
+        if self.always_use_fsync {
+            file.sync_all()
+                .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
+        }
 
         Ok(())
     }
@@ -316,7 +361,7 @@ impl WALManager {
         unimplemented!("<Get last WAL segment file size logic>");
     }
 
-    async fn new_segment_file(&mut self) -> errors::Result<()> {
+    async fn new_segment_file(&mut self) -> errors::Result<File> {
         self.state.last_segment_id.increment();
 
         let new_segment_id = &self.state.last_segment_id;
@@ -347,8 +392,6 @@ impl WALManager {
 
         self.state.save(&self.base_path).await?;
 
-        self.current_segment_file = Some(file);
-
-        Ok(())
+        Ok(file)
     }
 }
