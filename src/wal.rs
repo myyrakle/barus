@@ -1,12 +1,12 @@
 use std::{
     fmt::Debug,
-    fs::{File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
     sync::Arc,
 };
+use tokio::io::AsyncWriteExt;
 
-use tokio::sync::Mutex;
+use tokio::{fs::OpenOptions, sync::Mutex};
 
 use crate::errors;
 
@@ -163,7 +163,7 @@ pub struct WALManager {
 }
 
 pub struct WALWriteState {
-    current_segment_file: Option<std::fs::File>,
+    current_segment_file: Option<tokio::fs::File>,
 }
 
 impl Debug for WALManager {
@@ -219,6 +219,7 @@ impl WALManager {
                 .create(true)
                 .truncate(true)
                 .open(&segment_file_path)
+                .await
                 .map_err(|e| {
                     errors::Errors::WalSegmentFileOpenError(format!(
                         "Failed to open WAL segment file: {}",
@@ -226,7 +227,7 @@ impl WALManager {
                     ))
                 })?;
 
-            file.set_len(WAL_SEGMENT_SIZE as u64).map_err(|e| {
+            file.set_len(WAL_SEGMENT_SIZE as u64).await.map_err(|e| {
                 errors::Errors::WalSegmentFileOpenError(format!(
                     "Failed to set length for initial WAL segment file: {}",
                     e
@@ -250,6 +251,7 @@ impl WALManager {
             .read(true)
             .write(true)
             .open(&segment_file_path)
+            .await
             .map_err(|e| {
                 errors::Errors::WalSegmentFileOpenError(format!(
                     "Failed to open WAL segment file: {}",
@@ -275,7 +277,7 @@ impl WALManager {
                     // fsync current segment file
                     #[allow(clippy::collapsible_if)]
                     if let Some(file) = &state.current_segment_file {
-                        if let Err(e) = file.sync_all() {
+                        if let Err(e) = file.sync_all().await {
                             eprintln!("Failed to fsync WAL segment file: {}", e);
                             // Handle error (e.g., retry, log, etc.)
                         }
@@ -320,8 +322,10 @@ impl WALManager {
 
         // 4. Write the record (header + payload)
         file.write_all(&header_bytes)
+            .await
             .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
         file.write_all(&encoded)
+            .await
             .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
 
         // 5. Update WAL state
@@ -331,6 +335,7 @@ impl WALManager {
         // 5. fsync (Optional)
         if self.always_use_fsync {
             file.sync_all()
+                .await
                 .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
         }
 
@@ -376,7 +381,7 @@ impl WALManager {
         })
     }
 
-    async fn new_segment_file(&mut self) -> errors::Result<File> {
+    async fn new_segment_file(&mut self) -> errors::Result<tokio::fs::File> {
         self.state.last_segment_id.increment();
 
         let new_segment_id = &self.state.last_segment_id;
@@ -390,6 +395,7 @@ impl WALManager {
             .create(true)
             .truncate(true)
             .open(&new_segment_file_path)
+            .await
             .map_err(|e| {
                 errors::Errors::WalSegmentFileOpenError(format!(
                     "Failed to create new WAL segment file: {}",
@@ -397,7 +403,7 @@ impl WALManager {
                 ))
             })?;
 
-        file.set_len(WAL_SEGMENT_SIZE as u64).map_err(|e| {
+        file.set_len(WAL_SEGMENT_SIZE as u64).await.map_err(|e| {
             errors::Errors::WalSegmentFileOpenError(format!(
                 "Failed to set length for new WAL segment file: {}",
                 e
