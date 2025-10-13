@@ -297,6 +297,8 @@ impl WALManager {
         let payload_size = encoded.len();
         let header_bytes = (payload_size as u32).to_be_bytes();
 
+        let total_bytes = payload_size + header_bytes.len();
+
         // 2. Get Write Lock
         let write_mutex = self.write_state.clone();
 
@@ -316,11 +318,15 @@ impl WALManager {
             )
         })?;
 
-        // 4. Write the record (header + payload + newline)
+        // 4. Write the record (header + payload)
         file.write_all(&header_bytes)
             .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
         file.write_all(&encoded)
             .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
+
+        // 5. Update WAL state
+        self.state.last_segment_file_offset += total_bytes as u64;
+        self.state.last_record_id = new_record_id;
 
         // 5. fsync (Optional)
         if self.always_use_fsync {
