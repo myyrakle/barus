@@ -39,8 +39,10 @@ impl DBEngine {
 
         // 2. TODO: Global Setting Init
 
-        // 3. Initialize the WAL manager
+        // 3. Initialize and load the WAL manager
         self.wal_manager.initialize().await?;
+        self.wal_manager.load().await?;
+        self.wal_manager.start_background()?;
 
         // 4. TODO: Basic Table Setting Init
 
