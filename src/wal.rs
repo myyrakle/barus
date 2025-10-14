@@ -1,6 +1,5 @@
 use std::{
     fmt::Debug,
-    io::Write,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -98,22 +97,28 @@ impl WalGlobalState {
         Ok(state)
     }
 
-    // Save the WAL global state to a file
-    pub async fn save(&self, base_path: &Path) -> errors::Result<()> {
+    pub async fn get_file_handle(&self, base_path: &Path) -> errors::Result<tokio::fs::File> {
         let wal_state_path = base_path.join(WAL_STATE_PATH);
-        let data = serde_json::to_vec_pretty(self)
-            .map_err(|e| errors::Errors::WalRecordEncodeError(e.to_string()))?;
 
-        let mut file = std::fs::OpenOptions::new()
+        let file = tokio::fs::OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
             .open(wal_state_path)
+            .await
             .map_err(|e| errors::Errors::WalStateWriteError(e.to_string()))?;
 
-        file.write_all(&data)
-            .map_err(|e| errors::Errors::WalStateWriteError(e.to_string()))?;
-        file.sync_all()
+        Ok(file)
+    }
+
+    // Save the WAL global state to a file
+    pub async fn save(&self, file_handle: &mut tokio::fs::File) -> errors::Result<()> {
+        let data = serde_json::to_vec_pretty(self)
+            .map_err(|e| errors::Errors::WalRecordEncodeError(e.to_string()))?;
+
+        file_handle
+            .write_all(&data)
+            .await
             .map_err(|e| errors::Errors::WalStateWriteError(e.to_string()))?;
 
         Ok(())
@@ -159,11 +164,16 @@ pub struct WALManager {
     state: WalGlobalState,
     background_fsync_duration: Option<std::time::Duration>,
     always_use_fsync: bool,
-    write_state: Arc<Mutex<WALWriteState>>,
+    wal_write_handles: Arc<Mutex<WALWriteHandles>>,
+    wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
 }
 
-pub struct WALWriteState {
+pub struct WALWriteHandles {
     current_segment_file: Option<tokio::fs::File>,
+}
+
+pub struct WALStateWriteHandles {
+    state_file: Option<tokio::fs::File>,
 }
 
 impl Debug for WALManager {
@@ -181,8 +191,11 @@ impl WALManager {
             codec,
             base_path,
             state: Default::default(),
-            write_state: Arc::new(Mutex::new(WALWriteState {
+            wal_write_handles: Arc::new(Mutex::new(WALWriteHandles {
                 current_segment_file: None,
+            })),
+            wal_state_write_handles: Arc::new(Mutex::new(WALStateWriteHandles {
+                state_file: None,
             })),
             always_use_fsync: false,
             background_fsync_duration: Some(std::time::Duration::from_secs(10)),
@@ -202,7 +215,9 @@ impl WALManager {
         let wal_state_path = self.base_path.join(WAL_STATE_PATH);
         if !wal_state_path.exists() {
             let initial_state = WalGlobalState::default();
-            initial_state.save(&self.base_path).await?;
+
+            let mut file_handle = initial_state.get_file_handle(&self.base_path).await?;
+            initial_state.save(&mut file_handle).await?;
         }
 
         // 3. create initial segment file if wal directory is empty
@@ -242,6 +257,12 @@ impl WALManager {
     pub async fn load(&mut self) -> errors::Result<()> {
         // Load the WAL global state from the state file
         self.state = WalGlobalState::load(&self.base_path).await?;
+        {
+            self.wal_state_write_handles.lock().await.state_file =
+                Some(self.state.get_file_handle(&self.base_path).await?);
+        }
+
+        // TODO: recovery last_record_id & last_segment_file_offset by scanning the last segment file
 
         // Load file stream for the current segment
         let segment_file_name = self.get_current_segment_file_name()?;
@@ -259,14 +280,14 @@ impl WALManager {
                 ))
             })?;
 
-        self.write_state.lock().await.current_segment_file = Some(file);
+        self.wal_write_handles.lock().await.current_segment_file = Some(file);
 
         Ok(())
     }
 
     pub fn start_background(&self) -> errors::Result<()> {
         if let Some(duration) = self.background_fsync_duration {
-            let write_state = self.write_state.clone();
+            let write_state = self.wal_write_handles.clone();
 
             tokio::spawn(async move {
                 loop {
@@ -302,7 +323,7 @@ impl WALManager {
         let total_bytes = payload_size + header_bytes.len();
 
         // 2. Get Write Lock
-        let write_mutex = self.write_state.clone();
+        let write_mutex = self.wal_write_handles.clone();
 
         let mut write_state = write_mutex.lock().await;
 
@@ -362,7 +383,7 @@ impl WALManager {
     ) -> errors::Result<()> {
         self.state.last_checkpoint_segment_id = WalSegmentID::new(segment_id);
         self.state.last_checkpoint_record_id = record_id;
-        self.state.save(&self.base_path).await?;
+        self.save_state().await?;
 
         Ok(())
     }
@@ -411,8 +432,18 @@ impl WALManager {
         })?;
         self.state.last_segment_file_offset = 0;
 
-        self.state.save(&self.base_path).await?;
+        self.save_state().await?;
 
         Ok(file)
+    }
+
+    async fn save_state(&self) -> errors::Result<()> {
+        let mut state_handles = self.wal_state_write_handles.lock().await;
+
+        let file = state_handles.state_file.as_mut().ok_or_else(|| {
+            errors::Errors::WalStateWriteError("WAL state file is not opened".to_string())
+        })?;
+
+        self.state.save(file).await
     }
 }
