@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
 use tokio::{fs::OpenOptions, sync::Mutex};
 
@@ -97,13 +97,25 @@ impl WalGlobalState {
         Ok(state)
     }
 
-    pub async fn get_file_handle(&self, base_path: &Path) -> errors::Result<tokio::fs::File> {
+    pub async fn get_file_init_handle(&self, base_path: &Path) -> errors::Result<tokio::fs::File> {
         let wal_state_path = base_path.join(WAL_STATE_PATH);
 
         let file = tokio::fs::OpenOptions::new()
             .create(true)
-            .write(true)
             .truncate(true)
+            .write(true)
+            .open(wal_state_path)
+            .await
+            .map_err(|e| errors::Errors::WalStateWriteError(e.to_string()))?;
+
+        Ok(file)
+    }
+
+    pub async fn get_file_handle(&self, base_path: &Path) -> errors::Result<tokio::fs::File> {
+        let wal_state_path = base_path.join(WAL_STATE_PATH);
+
+        let file = tokio::fs::OpenOptions::new()
+            .write(true)
             .open(wal_state_path)
             .await
             .map_err(|e| errors::Errors::WalStateWriteError(e.to_string()))?;
@@ -117,7 +129,17 @@ impl WalGlobalState {
             .map_err(|e| errors::Errors::WalRecordEncodeError(e.to_string()))?;
 
         file_handle
+            .seek(std::io::SeekFrom::Start(0))
+            .await
+            .map_err(|e| errors::Errors::WalStateWriteError(e.to_string()))?;
+
+        file_handle
             .write_all(&data)
+            .await
+            .map_err(|e| errors::Errors::WalStateWriteError(e.to_string()))?;
+
+        file_handle
+            .set_len(data.len() as u64)
             .await
             .map_err(|e| errors::Errors::WalStateWriteError(e.to_string()))?;
 
@@ -216,7 +238,7 @@ impl WALManager {
         if !wal_state_path.exists() {
             let initial_state = WalGlobalState::default();
 
-            let mut file_handle = initial_state.get_file_handle(&self.base_path).await?;
+            let mut file_handle = initial_state.get_file_init_handle(&self.base_path).await?;
             initial_state.save(&mut file_handle).await?;
         }
 
@@ -230,9 +252,9 @@ impl WALManager {
 
             let file = OpenOptions::new()
                 .read(true)
-                .write(true)
                 .create(true)
                 .truncate(true)
+                .write(true)
                 .open(&segment_file_path)
                 .await
                 .map_err(|e| {
@@ -413,8 +435,6 @@ impl WALManager {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
-            .create(true)
-            .truncate(true)
             .open(&new_segment_file_path)
             .await
             .map_err(|e| {
