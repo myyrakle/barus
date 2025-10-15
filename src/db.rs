@@ -70,10 +70,24 @@ impl DBEngine {
 
         // unimplemented!()
 
+        // TODO: 메인 테이블 데이터 및 Tree 인덱스 업데이트
+
         Ok(())
     }
 
-    pub async fn delete(&self, _key: &str) -> errors::Result<()> {
-        unimplemented!()
+    pub async fn delete(&self, key: &str) -> errors::Result<()> {
+        let wal_record = WalRecord {
+            record_id: 0,
+            record_type: wal::RecordType::Delete,
+            data: format!(r#"{{"key":"{}"}}"#, key),
+        };
+
+        {
+            self.wal_manager.lock().await.append(wal_record).await?;
+        }
+
+        // TODO: 메인 테이블 데이터 및 Tree 인덱스 업데이트
+
+        Ok(())
     }
 }
