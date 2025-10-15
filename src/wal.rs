@@ -151,7 +151,7 @@ impl WalGlobalState {
 pub struct WalRecord {
     pub record_id: u64,
     pub record_type: RecordType,
-    pub data: serde_json::Value,
+    pub data: String,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
