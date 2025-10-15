@@ -1,14 +1,16 @@
 use std::path::PathBuf;
 
+use tokio::sync::Mutex;
+
 use crate::{
     errors,
-    wal::{WALManager, WalRecordJsonCodec},
+    wal::{self, WALManager, WalRecord, WalRecordJsonCodec},
 };
 
 #[derive(Debug)]
 pub struct DBEngine {
     base_path: PathBuf,
-    wal_manager: WALManager,
+    wal_manager: Mutex<WALManager>,
 }
 
 pub struct GetResponse {
@@ -19,7 +21,7 @@ impl DBEngine {
     pub fn new(base_path: PathBuf) -> Self {
         Self {
             base_path: base_path.clone(),
-            wal_manager: WALManager::new(Box::new(WalRecordJsonCodec {}), base_path),
+            wal_manager: Mutex::new(WALManager::new(Box::new(WalRecordJsonCodec {}), base_path)),
         }
     }
 
@@ -40,9 +42,9 @@ impl DBEngine {
         // 2. TODO: Global Setting Init
 
         // 3. Initialize and load the WAL manager
-        self.wal_manager.initialize().await?;
-        self.wal_manager.load().await?;
-        self.wal_manager.start_background()?;
+        self.wal_manager.lock().await.initialize().await?;
+        self.wal_manager.lock().await.load().await?;
+        self.wal_manager.lock().await.start_background()?;
 
         // 4. TODO: Basic Table Setting Init
 
@@ -53,8 +55,22 @@ impl DBEngine {
         unimplemented!()
     }
 
-    pub async fn put(&self, _key: &str, _value: &[u8]) -> errors::Result<()> {
-        unimplemented!()
+    pub async fn put(&self, key: &str, value: &str) -> errors::Result<()> {
+        let payload = format!(r#"{{"key":"{key}","value":"{value}"}}"#);
+
+        let wal_record = WalRecord {
+            record_id: 0,
+            record_type: wal::RecordType::Put,
+            data: payload,
+        };
+
+        {
+            self.wal_manager.lock().await.append(wal_record).await?;
+        }
+
+        // unimplemented!()
+
+        Ok(())
     }
 
     pub async fn delete(&self, _key: &str) -> errors::Result<()> {
