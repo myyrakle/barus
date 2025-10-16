@@ -354,6 +354,12 @@ impl WALManager {
         let current_segment_size = self.get_current_segment_file_size()?;
 
         if current_segment_size + encoded.len() > WAL_SEGMENT_SIZE {
+            println!(
+                "Current segment size: {}, New record size: {}",
+                current_segment_size,
+                encoded.len()
+            );
+
             write_state.current_segment_file = Some(self.new_segment_file().await?);
         }
 
@@ -437,6 +443,8 @@ impl WALManager {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
+            .create(true)
+            .truncate(true)
             .open(&new_segment_file_path)
             .await
             .map_err(|e| {
