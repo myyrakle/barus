@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     errors,
-    wal::{self, WALManager, WalRecord, WalRecordJsonCodec},
+    wal::{self, WALManager, WalRecord, WalRecordBincodeCodec},
 };
 
 #[derive(Debug)]
@@ -21,7 +21,10 @@ impl DBEngine {
     pub fn new(base_path: PathBuf) -> Self {
         Self {
             base_path: base_path.clone(),
-            wal_manager: Mutex::new(WALManager::new(Box::new(WalRecordJsonCodec {}), base_path)),
+            wal_manager: Mutex::new(WALManager::new(
+                Box::new(WalRecordBincodeCodec {}),
+                base_path,
+            )),
         }
     }
 
