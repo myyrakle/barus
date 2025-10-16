@@ -10,7 +10,7 @@ use tokio::{fs::OpenOptions, sync::Mutex};
 
 use crate::errors;
 
-pub const WAL_SEGMENT_SIZE: usize = 1024 * 1024 * 16; // 16MB
+pub const WAL_SEGMENT_SIZE: usize = 1024 * 1024 * 32; // 32MB
 pub const WAL_ZERO_CHUNK: [u8; WAL_SEGMENT_SIZE] = [0u8; WAL_SEGMENT_SIZE];
 
 pub const WAL_DIRECTORY: &str = "wal";
