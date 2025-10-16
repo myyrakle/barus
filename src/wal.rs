@@ -392,10 +392,11 @@ impl WALManager {
         })?;
 
         // 4. Write the record (header + payload)
-        file.write_all(&header_bytes)
-            .await
-            .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
-        file.write_all(&encoded)
+        let mut write_buffer = Vec::with_capacity(4 + encoded.len());
+        write_buffer.extend_from_slice(&header_bytes);
+        write_buffer.extend_from_slice(&encoded);
+
+        file.write_all(&write_buffer)
             .await
             .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
 
