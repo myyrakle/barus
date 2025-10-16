@@ -147,14 +147,18 @@ impl WalGlobalState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode,
+)]
 pub struct WalRecord {
     pub record_id: u64,
     pub record_type: RecordType,
     pub data: String,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode,
+)]
 pub enum RecordType {
     #[serde(rename = "put")]
     Put,
@@ -177,6 +181,24 @@ impl WalRecordCodec for WalRecordJsonCodec {
     fn decode(&self, data: &[u8]) -> errors::Result<WalRecord> {
         serde_json::from_slice(data)
             .map_err(|e| errors::Errors::WalRecordDecodeError(e.to_string()))
+    }
+}
+
+pub struct WalRecordBincodeCodec;
+
+impl WalRecordCodec for WalRecordBincodeCodec {
+    fn encode(&self, record: &WalRecord) -> errors::Result<Vec<u8>> {
+        // bincode 2.x uses encode_to_vec with config
+        bincode::encode_to_vec(record, bincode::config::standard())
+            .map_err(|e| errors::Errors::WalRecordEncodeError(e.to_string()))
+    }
+
+    fn decode(&self, data: &[u8]) -> errors::Result<WalRecord> {
+        // bincode 2.x uses decode_from_slice with config
+        let (decoded, _len): (WalRecord, usize) =
+            bincode::decode_from_slice(data, bincode::config::standard())
+                .map_err(|e| errors::Errors::WalRecordDecodeError(e.to_string()))?;
+        Ok(decoded)
     }
 }
 
