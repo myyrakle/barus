@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     errors,
-    wal::{self, WALManager, WalRecord, WalRecordBincodeCodec},
+    wal::{self, WALManager, WalPayload, WalRecord, WalRecordBincodeCodec},
 };
 
 #[derive(Debug)]
@@ -58,13 +58,15 @@ impl DBEngine {
         unimplemented!()
     }
 
-    pub async fn put(&self, table: &str, key: &str, value: &str) -> errors::Result<()> {
-        let payload = format!(r#"{{"table":"{table}","key":"{key}","value":"{value}"}}"#);
-
+    pub async fn put(&self, table: String, key: String, value: String) -> errors::Result<()> {
         let wal_record = WalRecord {
             record_id: 0,
             record_type: wal::RecordType::Put,
-            data: payload,
+            data: WalPayload {
+                table: table,
+                key: key,
+                value: Some(value),
+            },
         };
 
         {
@@ -78,11 +80,15 @@ impl DBEngine {
         Ok(())
     }
 
-    pub async fn delete(&self, table: &str, key: &str) -> errors::Result<()> {
+    pub async fn delete(&self, table: String, key: String) -> errors::Result<()> {
         let wal_record = WalRecord {
             record_id: 0,
             record_type: wal::RecordType::Delete,
-            data: format!(r#"{{"table":"{}","key":"{}"}}"#, table, key),
+            data: WalPayload {
+                table: table.to_string(),
+                key: key.to_string(),
+                value: None,
+            },
         };
 
         {

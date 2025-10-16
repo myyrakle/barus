@@ -150,10 +150,19 @@ impl WalGlobalState {
 #[derive(
     Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode,
 )]
+pub struct WalPayload {
+    pub table: String,
+    pub key: String,
+    pub value: Option<String>,
+}
+
+#[derive(
+    Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode,
+)]
 pub struct WalRecord {
     pub record_id: u64,
     pub record_type: RecordType,
-    pub data: String,
+    pub data: WalPayload,
 }
 
 #[derive(
@@ -376,12 +385,6 @@ impl WALManager {
         let current_segment_size = self.get_current_segment_file_size()?;
 
         if current_segment_size + total_bytes > WAL_SEGMENT_SIZE {
-            println!(
-                "Current segment size: {}, New record size: {}",
-                current_segment_size,
-                encoded.len()
-            );
-
             write_state.current_segment_file = Some(self.new_segment_file().await?);
         }
 
