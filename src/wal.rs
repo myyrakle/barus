@@ -125,7 +125,7 @@ impl WalGlobalState {
 
     // Save the WAL global state to a file
     pub async fn save(&self, file_handle: &mut tokio::fs::File) -> errors::Result<()> {
-        let data = serde_json::to_vec_pretty(self)
+        let data = serde_json::to_vec(self)
             .map_err(|e| errors::Errors::WalRecordEncodeError(e.to_string()))?;
 
         file_handle
@@ -399,15 +399,9 @@ impl WALManager {
         write_buffer.extend_from_slice(&header_bytes);
         write_buffer.extend_from_slice(&encoded);
 
-        file.write_all(&write_buffer)
-            .await
-            .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
-
-        // 5. Update WAL state
-        self.state.last_segment_file_offset += total_bytes as u64;
-        self.state.last_record_id = new_record_id;
-
-        self.save_state().await?;
+        file.write_all(&write_buffer).await.map_err(|e| {
+            errors::Errors::WalRecordWriteError(format!("Failed to write WAL record: {}", e))
+        })?;
 
         // 5. datasync (Optional)
         if self.always_use_fsync {
@@ -487,8 +481,6 @@ impl WALManager {
             ))
         })?;
         self.state.last_segment_file_offset = 0;
-
-        self.save_state().await?;
 
         Ok(file)
     }
