@@ -2,6 +2,7 @@ use std::{
     fmt::Debug,
     path::{Path, PathBuf},
     sync::Arc,
+    vec,
 };
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
@@ -10,9 +11,11 @@ use tokio::{fs::OpenOptions, sync::Mutex};
 use crate::errors;
 
 pub const WAL_SEGMENT_SIZE: usize = 1024 * 1024 * 16; // 16MB
+pub const WAL_ZERO_CHUNK: [u8; WAL_SEGMENT_SIZE] = [0u8; WAL_SEGMENT_SIZE];
 
 pub const WAL_DIRECTORY: &str = "wal";
 pub const WAL_STATE_PATH: &str = "wal_state.json";
+pub const WAL_RECORD_HEADER_SIZE: usize = 4; // 4 bytes for record length
 
 // 24 length hex ID (ex 000000010000000D000000EA)
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
@@ -315,7 +318,8 @@ impl WALManager {
                 Some(self.state.get_file_handle(&self.base_path).await?);
         }
 
-        // TODO: recovery last_record_id & last_segment_file_offset by scanning the last segment file
+        // last_record_id & last_segment_file_offset by scanning the last segment file
+        self.do_recover().await?;
 
         // Load file stream for the current segment
         let segment_file_name = self.get_current_segment_file_name()?;
@@ -334,6 +338,26 @@ impl WALManager {
             })?;
 
         self.wal_write_handles.lock().await.current_segment_file = Some(file);
+
+        Ok(())
+    }
+
+    async fn do_recover(&mut self) -> errors::Result<()> {
+        let segment_files = self.list_segment_files().await?;
+
+        if segment_files.is_empty() {
+            return Ok(());
+        }
+
+        if let Some(last_segment_file) = segment_files.last() {
+            let (records, offset) = self.scan_records(last_segment_file).await?;
+
+            if let Some(last_record) = records.last() {
+                self.state.last_record_id = last_record.record_id;
+                self.state.last_segment_file_offset = offset as u64;
+                self.save_state().await?;
+            }
+        }
 
         Ok(())
     }
@@ -395,7 +419,7 @@ impl WALManager {
         })?;
 
         // 4. Write the record (header + payload)
-        let mut write_buffer = Vec::with_capacity(4 + encoded.len());
+        let mut write_buffer = Vec::with_capacity(WAL_RECORD_HEADER_SIZE + encoded.len());
         write_buffer.extend_from_slice(&header_bytes);
         write_buffer.extend_from_slice(&encoded);
 
@@ -410,19 +434,83 @@ impl WALManager {
                 .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
         }
 
+        self.state.last_record_id = new_record_id;
+        self.state.last_segment_file_offset += total_bytes as u64;
+
         Ok(())
     }
 
+    // listup WAL segment files
+    pub async fn list_segment_files(&self) -> errors::Result<Vec<String>> {
+        let wal_dir = self.base_path.join(WAL_DIRECTORY);
+
+        // 1. 모든 세그먼트 파일 읽기 (파일만 필터링해서 파일명 반환)
+        let mut segment_files: Vec<_> = std::fs::read_dir(&wal_dir)
+            .map_err(|e| {
+                errors::Errors::WalSegmentFileOpenError(format!(
+                    "Failed to read WAL directory: {}",
+                    e
+                ))
+            })?
+            .filter_map(|entry| {
+                entry.ok().and_then(|e| {
+                    let path = e.path();
+                    if path.is_file() {
+                        path.file_name()
+                            .and_then(|name| name.to_str().map(|s| s.to_string()))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect();
+
+        // 2. 파일명 기준 정렬
+        segment_files.sort();
+
+        Ok(segment_files)
+    }
+
     // read records from the WAL
-    // read range: last_checkpoint_record_id < records... <= last_record_id
-    pub async fn read_records(
+    pub async fn scan_records(
         &self,
-        _start_segment_id: u32, // need state.last_checkpoint_segment_id
-        _end_segment_id: u32,   // need state.last_segment_id
-        _start_record_id: u64,  // need state.last_checkpoint_record_id
-        _end_record_id: u64,    // need state.last_record_id
-    ) -> errors::Result<Vec<WalRecord>> {
-        unimplemented!("<WAL Read records logic>");
+        segment_file: &str,
+    ) -> errors::Result<(Vec<WalRecord>, usize)> {
+        let segment_file_path = self.base_path.join(WAL_DIRECTORY).join(segment_file);
+
+        let bytes = tokio::fs::read(&segment_file_path).await.map_err(|e| {
+            errors::Errors::WalSegmentFileOpenError(format!(
+                "Failed to read WAL segment file: {}",
+                e
+            ))
+        })?;
+
+        let mut records = vec![];
+
+        let mut offset = 0;
+        while offset + WAL_RECORD_HEADER_SIZE <= bytes.len() {
+            let header_bytes = &bytes[offset..offset + WAL_RECORD_HEADER_SIZE];
+            let payload_size = u32::from_be_bytes(header_bytes.try_into().unwrap()) as usize;
+
+            if payload_size == 0 {
+                break; // No more valid records
+            }
+
+            offset += WAL_RECORD_HEADER_SIZE;
+
+            if offset + payload_size > bytes.len() {
+                break; // Incomplete record, stop processing
+            }
+
+            let payload_bytes = &bytes[offset..offset + payload_size];
+
+            let record = self.codec.decode(payload_bytes)?;
+
+            records.push(record);
+            offset += payload_size;
+        }
+
+        Ok((records, offset))
     }
 
     // Move the checkpoint to the specified segment and record ID
@@ -460,29 +548,100 @@ impl WALManager {
 
         let new_segment_file_path = self.base_path.join(WAL_DIRECTORY).join(new_segment_id_str);
 
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&new_segment_file_path)
-            .await
-            .map_err(|e| {
+        #[cfg(target_os = "linux")]
+        {
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&new_segment_file_path)
+                .await
+                .map_err(|e| {
+                    errors::Errors::WalSegmentFileOpenError(format!(
+                        "Failed to create new WAL segment file: {}",
+                        e
+                    ))
+                })?;
+
+            use std::os::fd::{AsFd, AsRawFd};
+
+            let fd = file.as_fd().as_raw_fd();
+            let result = unsafe {
+                libc::fallocate(
+                    fd,
+                    0, // flags = 0 은 공간만 할당 (초기화 안됨)
+                    0,
+                    WAL_SEGMENT_SIZE as i64,
+                )
+            };
+
+            if result != 0 {
+                return Err(errors::Errors::WalSegmentFileOpenError(format!(
+                    "Failed to allocate space for new WAL segment file: {}",
+                    std::io::Error::last_os_error()
+                )));
+            }
+
+            let result = unsafe {
+                libc::fallocate(
+                    fd,
+                    libc::FALLOC_FL_ZERO_RANGE, // 0으로 채우기
+                    0,
+                    WAL_SEGMENT_SIZE as i64,
+                )
+            };
+
+            if result != 0 {
+                return Err(errors::Errors::WalSegmentFileOpenError(format!(
+                    "Failed to zero-fill new WAL segment file: {}",
+                    std::io::Error::last_os_error()
+                )));
+            }
+
+            self.state.last_segment_file_offset = 0;
+
+            Ok(file)
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            let mut file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&new_segment_file_path)
+                .await
+                .map_err(|e| {
+                    errors::Errors::WalSegmentFileOpenError(format!(
+                        "Failed to create new WAL segment file: {}",
+                        e
+                    ))
+                })?;
+
+            file.set_len(WAL_SEGMENT_SIZE as u64).await.map_err(|e| {
                 errors::Errors::WalSegmentFileOpenError(format!(
-                    "Failed to create new WAL segment file: {}",
+                    "Failed to set length for new WAL segment file: {}",
                     e
                 ))
             })?;
 
-        file.set_len(WAL_SEGMENT_SIZE as u64).await.map_err(|e| {
-            errors::Errors::WalSegmentFileOpenError(format!(
-                "Failed to set length for new WAL segment file: {}",
-                e
-            ))
-        })?;
-        self.state.last_segment_file_offset = 0;
+            file.write_all(&WAL_ZERO_CHUNK).await.map_err(|e| {
+                errors::Errors::WalSegmentFileOpenError(format!(
+                    "Failed to zero-fill new WAL segment file: {}",
+                    e
+                ))
+            })?;
 
-        Ok(file)
+            file.seek(std::io::SeekFrom::Start(0))
+                .await
+                .map_err(|e| errors::Errors::WalSegmentFileOpenError(e.to_string()))?;
+
+            self.state.last_segment_file_offset = 0;
+
+            Ok(file)
+        }
     }
 
     async fn save_state(&self) -> errors::Result<()> {
