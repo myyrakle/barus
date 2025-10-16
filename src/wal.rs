@@ -353,7 +353,7 @@ impl WALManager {
         // If current segment file size + new record size > WAL_SEGMENT_SIZE, create new segment file
         let current_segment_size = self.get_current_segment_file_size()?;
 
-        if current_segment_size + encoded.len() > WAL_SEGMENT_SIZE {
+        if current_segment_size + total_bytes > WAL_SEGMENT_SIZE {
             println!(
                 "Current segment size: {}, New record size: {}",
                 current_segment_size,
