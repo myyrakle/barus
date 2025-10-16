@@ -12,6 +12,7 @@ use crate::errors;
 
 pub const WAL_SEGMENT_SIZE: usize = 1024 * 1024 * 32; // 32MB
 pub const WAL_ZERO_CHUNK: [u8; WAL_SEGMENT_SIZE] = [0u8; WAL_SEGMENT_SIZE];
+pub const WAL_WRITE_BUFFER_SIZE: usize = WAL_RECORD_HEADER_SIZE + 10 * 1024 * 1024; // 최대 10MB 레코드 지원
 
 pub const WAL_DIRECTORY: &str = "wal";
 pub const WAL_STATE_PATH: &str = "wal_state.json";
@@ -179,29 +180,16 @@ pub enum RecordType {
 }
 
 pub trait WalRecordCodec {
-    fn encode(&self, record: &WalRecord) -> errors::Result<Vec<u8>>;
+    fn encode(&self, record: &WalRecord, buf: &mut [u8]) -> errors::Result<usize>;
     fn decode(&self, data: &[u8]) -> errors::Result<WalRecord>;
-}
-
-pub struct WalRecordJsonCodec;
-
-impl WalRecordCodec for WalRecordJsonCodec {
-    fn encode(&self, record: &WalRecord) -> errors::Result<Vec<u8>> {
-        serde_json::to_vec(record).map_err(|e| errors::Errors::WalRecordEncodeError(e.to_string()))
-    }
-
-    fn decode(&self, data: &[u8]) -> errors::Result<WalRecord> {
-        serde_json::from_slice(data)
-            .map_err(|e| errors::Errors::WalRecordDecodeError(e.to_string()))
-    }
 }
 
 pub struct WalRecordBincodeCodec;
 
 impl WalRecordCodec for WalRecordBincodeCodec {
-    fn encode(&self, record: &WalRecord) -> errors::Result<Vec<u8>> {
+    fn encode(&self, record: &WalRecord, buf: &mut [u8]) -> errors::Result<usize> {
         // bincode 2.x uses encode_to_vec with config
-        bincode::encode_to_vec(record, bincode::config::standard())
+        bincode::encode_into_slice(record, buf, bincode::config::standard())
             .map_err(|e| errors::Errors::WalRecordEncodeError(e.to_string()))
     }
 
@@ -222,6 +210,7 @@ pub struct WALManager {
     always_use_fsync: bool,
     wal_write_handles: Arc<Mutex<WALWriteHandles>>,
     wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
+    wal_write_buffer: Vec<u8>,
 }
 
 pub struct WALWriteHandles {
@@ -243,6 +232,8 @@ impl Debug for WALManager {
 
 impl WALManager {
     pub fn new(codec: Box<dyn WalRecordCodec + Send + Sync>, base_path: PathBuf) -> Self {
+        let wal_write_buffer = vec![0u8; WAL_WRITE_BUFFER_SIZE];
+
         Self {
             codec,
             base_path,
@@ -255,6 +246,7 @@ impl WALManager {
             })),
             always_use_fsync: false,
             background_fsync_duration: Some(std::time::Duration::from_secs(10)),
+            wal_write_buffer,
         }
     }
 
@@ -392,10 +384,14 @@ impl WALManager {
         // 1. Serialize the record (thread free)
         let new_record_id = self.state.last_record_id + 1;
         record.record_id = new_record_id;
-        let encoded = self.codec.encode(&record)?;
 
-        let payload_size = encoded.len();
+        let payload_size = self.codec.encode(
+            &record,
+            &mut self.wal_write_buffer[WAL_RECORD_HEADER_SIZE..],
+        )?;
+
         let header_bytes = (payload_size as u32).to_be_bytes();
+        self.wal_write_buffer[0..WAL_RECORD_HEADER_SIZE].copy_from_slice(&header_bytes);
 
         let total_bytes = payload_size + header_bytes.len();
 
@@ -419,13 +415,11 @@ impl WALManager {
         })?;
 
         // 4. Write the record (header + payload)
-        let mut write_buffer = Vec::with_capacity(WAL_RECORD_HEADER_SIZE + encoded.len());
-        write_buffer.extend_from_slice(&header_bytes);
-        write_buffer.extend_from_slice(&encoded);
-
-        file.write_all(&write_buffer).await.map_err(|e| {
-            errors::Errors::WalRecordWriteError(format!("Failed to write WAL record: {}", e))
-        })?;
+        file.write_all(&self.wal_write_buffer[..total_bytes])
+            .await
+            .map_err(|e| {
+                errors::Errors::WalRecordWriteError(format!("Failed to write WAL record: {}", e))
+            })?;
 
         // 5. datasync (Optional)
         if self.always_use_fsync {
