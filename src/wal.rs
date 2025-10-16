@@ -320,7 +320,7 @@ impl WALManager {
                     // fsync current segment file
                     #[allow(clippy::collapsible_if)]
                     if let Some(file) = &state.current_segment_file {
-                        if let Err(e) = file.sync_all().await {
+                        if let Err(e) = file.sync_data().await {
                             eprintln!("Failed to fsync WAL segment file: {}", e);
                             // Handle error (e.g., retry, log, etc.)
                         }
@@ -383,9 +383,9 @@ impl WALManager {
 
         self.save_state().await?;
 
-        // 5. fsync (Optional)
+        // 5. datasync (Optional)
         if self.always_use_fsync {
-            file.sync_all()
+            file.sync_data()
                 .await
                 .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
         }
