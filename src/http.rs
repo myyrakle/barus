@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     Extension, Json,
-    extract::Query,
+    extract::{Path, Query},
     response::{IntoResponse, Response},
     routing::{delete, put},
 };
@@ -24,9 +24,9 @@ pub async fn run_server() {
 
     let app = Router::new()
         .route("/", get(root))
-        .route("/value", get(get_value))
-        .route("/value", put(put_value))
-        .route("/value", delete(delete_value))
+        .route("/{table}/value", get(get_value))
+        .route("/{table}/value", put(put_value))
+        .route("/{table}/value", delete(delete_value))
         .layer(axum::extract::Extension(wrapped_db));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -45,6 +45,7 @@ pub struct GetValueResponse<'a> {
 
 async fn get_value(
     Query(params): Query<HashMap<String, String>>,
+    Path(table): Path<String>,
     Extension(db): Extension<Arc<DBEngine>>,
 ) -> impl IntoResponse {
     let Some(key) = params.get("key") else {
@@ -54,7 +55,7 @@ async fn get_value(
             .unwrap();
     };
 
-    let result = db.get(key).await;
+    let result = db.get(&table, key).await;
 
     match result {
         Ok(res) => {
@@ -89,6 +90,7 @@ pub struct PutValueResponse {
 
 async fn put_value(
     Extension(db): Extension<Arc<DBEngine>>,
+    Path(table): Path<String>,
     Json(req): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     let Some(key) = req
@@ -113,7 +115,7 @@ async fn put_value(
             .unwrap();
     };
 
-    let result = db.put(&key, &value).await;
+    let result = db.put(&table, &key, &value).await;
 
     match result {
         Ok(_) => {
@@ -136,6 +138,7 @@ async fn put_value(
 
 async fn delete_value(
     Query(params): Query<HashMap<String, String>>,
+    Path(table): Path<String>,
     Extension(db): Extension<Arc<DBEngine>>,
 ) -> impl IntoResponse {
     let Some(key) = params.get("key") else {
@@ -145,7 +148,7 @@ async fn delete_value(
             .unwrap();
     };
 
-    let result = db.delete(key).await;
+    let result = db.delete(&table, key).await;
 
     match result {
         Ok(_) => {

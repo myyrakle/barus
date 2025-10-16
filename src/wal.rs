@@ -320,7 +320,7 @@ impl WALManager {
                     // fsync current segment file
                     #[allow(clippy::collapsible_if)]
                     if let Some(file) = &state.current_segment_file {
-                        if let Err(e) = file.sync_all().await {
+                        if let Err(e) = file.sync_data().await {
                             eprintln!("Failed to fsync WAL segment file: {}", e);
                             // Handle error (e.g., retry, log, etc.)
                         }
@@ -353,7 +353,13 @@ impl WALManager {
         // If current segment file size + new record size > WAL_SEGMENT_SIZE, create new segment file
         let current_segment_size = self.get_current_segment_file_size()?;
 
-        if current_segment_size + encoded.len() > WAL_SEGMENT_SIZE {
+        if current_segment_size + total_bytes > WAL_SEGMENT_SIZE {
+            println!(
+                "Current segment size: {}, New record size: {}",
+                current_segment_size,
+                encoded.len()
+            );
+
             write_state.current_segment_file = Some(self.new_segment_file().await?);
         }
 
@@ -375,9 +381,11 @@ impl WALManager {
         self.state.last_segment_file_offset += total_bytes as u64;
         self.state.last_record_id = new_record_id;
 
-        // 5. fsync (Optional)
+        self.save_state().await?;
+
+        // 5. datasync (Optional)
         if self.always_use_fsync {
-            file.sync_all()
+            file.sync_data()
                 .await
                 .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
         }
@@ -435,6 +443,8 @@ impl WALManager {
         let file = OpenOptions::new()
             .read(true)
             .write(true)
+            .create(true)
+            .truncate(true)
             .open(&new_segment_file_path)
             .await
             .map_err(|e| {

@@ -51,12 +51,12 @@ impl DBEngine {
         Ok(())
     }
 
-    pub async fn get(&self, _key: &str) -> errors::Result<GetResponse> {
+    pub async fn get(&self, _table: &str, _key: &str) -> errors::Result<GetResponse> {
         unimplemented!()
     }
 
-    pub async fn put(&self, key: &str, value: &str) -> errors::Result<()> {
-        let payload = format!(r#"{{"key":"{key}","value":"{value}"}}"#);
+    pub async fn put(&self, table: &str, key: &str, value: &str) -> errors::Result<()> {
+        let payload = format!(r#"{{"table":"{table}","key":"{key}","value":"{value}"}}"#);
 
         let wal_record = WalRecord {
             record_id: 0,
@@ -75,11 +75,11 @@ impl DBEngine {
         Ok(())
     }
 
-    pub async fn delete(&self, key: &str) -> errors::Result<()> {
+    pub async fn delete(&self, table: &str, key: &str) -> errors::Result<()> {
         let wal_record = WalRecord {
             record_id: 0,
             record_type: wal::RecordType::Delete,
-            data: format!(r#"{{"key":"{}"}}"#, key),
+            data: format!(r#"{{"table":"{}","key":"{}"}}"#, table, key),
         };
 
         {
