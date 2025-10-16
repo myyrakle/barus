@@ -375,6 +375,8 @@ impl WALManager {
         self.state.last_segment_file_offset += total_bytes as u64;
         self.state.last_record_id = new_record_id;
 
+        self.save_state().await?;
+
         // 5. fsync (Optional)
         if self.always_use_fsync {
             file.sync_all()
