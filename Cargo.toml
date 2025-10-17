@@ -21,3 +21,4 @@ serde_json = "1.0.145"
 log = "0.4.20"
 axum = "0.8.6"
 bincode = { version = "2", features = ["serde"] }
+libc = "0.2.177"

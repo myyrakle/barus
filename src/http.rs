@@ -115,12 +115,12 @@ async fn put_value(
             .unwrap();
     };
 
-    let result = db.put(&table, &key, &value).await;
+    let result = db.put(table, key, value).await;
 
     match result {
         Ok(_) => {
             let response = PutValueResponse {
-                message: format!("Put Value: {key} = {value}"),
+                message: "Stored".to_string(),
             };
 
             Response::builder()
@@ -130,29 +130,29 @@ async fn put_value(
                 .unwrap()
         }
         Err(e) => {
-            let error_message = format!("Error storing key {}: {:?}", key, e);
+            let error_message = format!("Error storing key: {:?}", e);
             Response::builder().status(500).body(error_message).unwrap()
         }
     }
 }
 
 async fn delete_value(
-    Query(params): Query<HashMap<String, String>>,
+    Query(mut params): Query<HashMap<String, String>>,
     Path(table): Path<String>,
     Extension(db): Extension<Arc<DBEngine>>,
 ) -> impl IntoResponse {
-    let Some(key) = params.get("key") else {
+    let Some(key) = params.remove("key") else {
         return Response::builder()
             .status(400)
             .body("Missing 'key' parameter".to_string())
             .unwrap();
     };
 
-    let result = db.delete(&table, key).await;
+    let result = db.delete(table, key).await;
 
     match result {
         Ok(_) => {
-            let response = format!("Deleted key: {key}");
+            let response = "Deleted".to_string();
 
             Response::builder()
                 .status(200)
@@ -161,7 +161,7 @@ async fn delete_value(
                 .unwrap()
         }
         Err(e) => {
-            let error_message = format!("Error deleting key {}: {:?}", key, e);
+            let error_message = format!("Error deleting key: {:?}", e);
             Response::builder().status(500).body(error_message).unwrap()
         }
     }
