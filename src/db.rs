@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use tokio::sync::Mutex;
 
@@ -7,10 +7,10 @@ use crate::{
     wal::{self, WALManager, WalPayload, WalRecord, WalRecordBincodeCodec},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)] // Clone 추가
 pub struct DBEngine {
     base_path: PathBuf,
-    wal_manager: Mutex<WALManager>,
+    wal_manager: Arc<Mutex<WALManager>>,
 }
 
 pub struct GetResponse {
@@ -21,10 +21,10 @@ impl DBEngine {
     pub fn new(base_path: PathBuf) -> Self {
         Self {
             base_path: base_path.clone(),
-            wal_manager: Mutex::new(WALManager::new(
+            wal_manager: Arc::new(Mutex::new(WALManager::new(
                 Box::new(WalRecordBincodeCodec {}),
                 base_path,
-            )),
+            ))),
         }
     }
 
@@ -45,9 +45,11 @@ impl DBEngine {
         // 2. TODO: Global Setting Init
 
         // 3. Initialize and load the WAL manager
-        self.wal_manager.lock().await.initialize().await?;
-        self.wal_manager.lock().await.load().await?;
-        self.wal_manager.lock().await.start_background()?;
+        let mut wal = self.wal_manager.lock().await;
+        wal.initialize().await?;
+        wal.load().await?;
+        wal.start_background()?;
+        drop(wal); // 명시적으로 Lock 해제
 
         // 4. TODO: Basic Table Setting Init
 

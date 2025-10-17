@@ -108,6 +108,11 @@ pub async fn run_grpc_server(db_engine: Arc<DBEngine>) -> Result<(), Box<dyn std
     let service = BarusGrpcService::new(db_engine);
 
     Server::builder()
+        // 성능 최적화 설정
+        .tcp_nodelay(true) // Nagle 알고리즘 비활성화
+        .tcp_keepalive(Some(std::time::Duration::from_secs(60)))
+        .http2_keepalive_interval(Some(std::time::Duration::from_secs(30)))
+        .http2_keepalive_timeout(Some(std::time::Duration::from_secs(10)))
         .add_service(BarusServiceServer::new(service))
         .serve(addr)
         .await?;
