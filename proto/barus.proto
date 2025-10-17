@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package barus;
+
+// Barus Key-Value Store Service
+service BarusService {
+  // Get a value by key
+  rpc Get(GetRequest) returns (GetResponse);
+  
+  // Put a key-value pair
+  rpc Put(PutRequest) returns (PutResponse);
+  
+  // Delete a key
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  
+  // Health check
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message GetRequest {
+  string table = 1;
+  string key = 2;
+}
+
+message GetResponse {
+  string key = 1;
+  string value = 2;
+}
+
+message PutRequest {
+  string table = 1;
+  string key = 2;
+  string value = 3;
+}
+
+message PutResponse {
+  string message = 1;
+}
+
+message DeleteRequest {
+  string table = 1;
+  string key = 2;
+}
+
+message DeleteResponse {
+  string message = 1;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;
+}

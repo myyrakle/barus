@@ -9,25 +9,17 @@ use axum::{
 
 use crate::db::DBEngine;
 
-pub async fn run_server() {
-    println!("Server is running...");
+pub async fn run_server(db_engine: Arc<DBEngine>) {
+    println!("HTTP Server is running on 0.0.0.0:3000");
 
     use axum::{Router, routing::get};
-
-    let mut db_engine = DBEngine::new("data".into());
-    db_engine
-        .initialize()
-        .await
-        .expect("DB Initialization failed");
-
-    let wrapped_db = Arc::new(db_engine);
 
     let app = Router::new()
         .route("/", get(root))
         .route("/{table}/value", get(get_value))
         .route("/{table}/value", put(put_value))
         .route("/{table}/value", delete(delete_value))
-        .layer(axum::extract::Extension(wrapped_db));
+        .layer(axum::extract::Extension(db_engine));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
