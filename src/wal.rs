@@ -344,11 +344,13 @@ impl WALManager {
         if let Some(last_segment_file) = segment_files.last() {
             let (records, offset) = self.scan_records(last_segment_file).await?;
 
+            self.state.last_segment_file_offset = offset as u64;
+
             if let Some(last_record) = records.last() {
                 self.state.last_record_id = last_record.record_id;
-                self.state.last_segment_file_offset = offset as u64;
-                self.save_state().await?;
             }
+
+            self.save_state().await?;
         }
 
         Ok(())
