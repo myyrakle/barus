@@ -18,20 +18,20 @@ pub const WAL_DIRECTORY: &str = "wal";
 pub const WAL_STATE_PATH: &str = "wal_state.json";
 pub const WAL_RECORD_HEADER_SIZE: usize = 4; // 4 bytes for record length
 
-// 24 length hex ID (ex 000000010000000D000000EA)
+// 24 length hex ID (ex 0000000D000000EA)
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
-pub struct WalSegmentID(u128);
+pub struct WalSegmentID(u64);
 
-impl std::ops::Add<u128> for WalSegmentID {
+impl std::ops::Add<u64> for WalSegmentID {
     type Output = WalSegmentID;
 
-    fn add(self, rhs: u128) -> Self::Output {
+    fn add(self, rhs: u64) -> Self::Output {
         WalSegmentID(self.0 + rhs)
     }
 }
 
 impl WalSegmentID {
-    pub fn new(id: u128) -> Self {
+    pub fn new(id: u64) -> Self {
         WalSegmentID(id)
     }
 
@@ -40,7 +40,7 @@ impl WalSegmentID {
     }
 }
 
-impl From<WalSegmentID> for u128 {
+impl From<WalSegmentID> for u64 {
     fn from(val: WalSegmentID) -> Self {
         val.0
     }
@@ -48,7 +48,7 @@ impl From<WalSegmentID> for u128 {
 
 impl From<&WalSegmentID> for String {
     fn from(val: &WalSegmentID) -> Self {
-        format!("{:024X}", val.0)
+        format!("{:016X}", val.0)
     }
 }
 
@@ -56,13 +56,13 @@ impl TryFrom<&str> for WalSegmentID {
     type Error = errors::Errors;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        if value.len() != 24 {
+        if value.len() != 16 {
             return Err(errors::Errors::WalSegmentIDParseError(
                 "Invalid segment ID length".to_string(),
             ));
         }
 
-        let id = u128::from_str_radix(value, 16).map_err(|e| {
+        let id = u64::from_str_radix(value, 16).map_err(|e| {
             errors::Errors::WalSegmentIDParseError(format!("Failed to parse segment ID: {}", e))
         })?;
 
@@ -273,7 +273,7 @@ impl WALManager {
             .map_err(|e| errors::Errors::WalInitializationError(e.to_string()))?;
 
         if entries.count() == 0 {
-            let segment_file_name = format!("{:024X}", 0u128);
+            let segment_file_name: String = (&WalSegmentID::new(0u64)).into();
             let segment_file_path = wal_dir_path.join(segment_file_name);
 
             let file = OpenOptions::new()
@@ -508,11 +508,7 @@ impl WALManager {
     }
 
     // Move the checkpoint to the specified segment and record ID
-    pub async fn move_checkpoint(
-        &mut self,
-        segment_id: u128,
-        record_id: u64,
-    ) -> errors::Result<()> {
+    pub async fn move_checkpoint(&mut self, segment_id: u64, record_id: u64) -> errors::Result<()> {
         self.state.last_checkpoint_segment_id = WalSegmentID::new(segment_id);
         self.state.last_checkpoint_record_id = record_id;
         self.save_state().await?;
