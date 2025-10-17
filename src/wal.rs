@@ -12,8 +12,9 @@ use tokio::{fs::OpenOptions, sync::Mutex};
 use crate::errors;
 
 pub const WAL_SEGMENT_SIZE: usize = 1024 * 1024 * 32; // 32MB
-pub const WAL_ZERO_CHUNK: [u8; WAL_SEGMENT_SIZE] = [0u8; WAL_SEGMENT_SIZE];
-pub const WAL_WRITE_BUFFER_SIZE: usize = WAL_RECORD_HEADER_SIZE + 10 * 1024 * 1024; // 최대 10MB 레코드 지원
+#[cfg(not(target_os = "linux"))]
+pub static WAL_ZERO_CHUNK: [u8; WAL_SEGMENT_SIZE] = [0u8; WAL_SEGMENT_SIZE];
+pub static WAL_WRITE_BUFFER_SIZE: usize = WAL_RECORD_HEADER_SIZE + 10 * 1024 * 1024; // 최대 10MB 레코드 지원
 
 pub const WAL_DIRECTORY: &str = "wal";
 pub const WAL_STATE_PATH: &str = "wal_state.json";
