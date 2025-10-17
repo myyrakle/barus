@@ -214,7 +214,6 @@ pub struct WALManager {
     base_path: PathBuf,
     state: WalGlobalState,
     background_fsync_duration: Option<std::time::Duration>,
-    always_use_fsync: bool,
     wal_write_handles: Arc<Mutex<WALWriteHandles>>,
     wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     wal_write_buffer: Vec<u8>,
@@ -251,7 +250,6 @@ impl WALManager {
             wal_state_write_handles: Arc::new(Mutex::new(WALStateWriteHandles {
                 state_file: None,
             })),
-            always_use_fsync: false,
             background_fsync_duration: Some(std::time::Duration::from_secs(10)),
             wal_write_buffer,
         }
@@ -399,10 +397,13 @@ impl WALManager {
             &mut self.wal_write_buffer[WAL_RECORD_HEADER_SIZE..],
         )?;
 
-        let header_bytes = (payload_size as u32).to_be_bytes();
-        self.wal_write_buffer[0..WAL_RECORD_HEADER_SIZE].copy_from_slice(&header_bytes);
+        // Set the header value (big-endian u32)
+        unsafe {
+            let ptr = self.wal_write_buffer.as_mut_ptr() as *mut u32;
+            *ptr = (payload_size as u32).to_be();
+        }
 
-        let total_bytes = payload_size + header_bytes.len();
+        let total_bytes = payload_size + WAL_RECORD_HEADER_SIZE;
 
         // 2. Get Write Lock
         let write_mutex = self.wal_write_handles.clone();
@@ -429,13 +430,6 @@ impl WALManager {
             .map_err(|e| {
                 errors::Errors::WalRecordWriteError(format!("Failed to write WAL record: {}", e))
             })?;
-
-        // 5. datasync (Optional)
-        if self.always_use_fsync {
-            file.sync_data()
-                .await
-                .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
-        }
 
         self.state.last_record_id = new_record_id;
         self.state.last_segment_file_offset += total_bytes as u64;
