@@ -389,7 +389,7 @@ impl WALManager {
 
             self.state.last_segment_file_offset = 0;
 
-            Ok(WALSegmentWriteHandle::new(file, 0).await?)
+            WALSegmentWriteHandle::new(file, 0).await
         }
 
         #[cfg(not(target_os = "linux"))]
