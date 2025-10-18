@@ -7,11 +7,9 @@ use axum::{
     routing::{delete, put},
 };
 
-use crate::db::DBEngine;
+use crate::{config::HTTP_PORT, db::DBEngine};
 
 pub async fn run_server(db_engine: Arc<DBEngine>) {
-    println!("HTTP Server is running on 0.0.0.0:3000");
-
     use axum::{Router, routing::get};
 
     let app = Router::new()
@@ -21,7 +19,11 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
         .route("/{table}/value", delete(delete_value))
         .layer(axum::extract::Extension(db_engine));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let addr = format!("0.0.0.0:{}", *HTTP_PORT);
+
+    println!("HTTP Server is running on {}", addr);
+
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
