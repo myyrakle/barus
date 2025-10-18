@@ -18,7 +18,6 @@ impl WalRecordBincodeCodec {
 
 impl WalRecordCodec for WalRecordBincodeCodec {
     fn encode(&self, record: &WalRecord, buf: &mut [u8]) -> errors::Result<usize> {
-        // bincode 2.x uses encode_to_vec with config
         bincode::encode_into_slice(record, buf, Self::CONFIG)
             .map_err(|e| errors::Errors::WalRecordEncodeError(e.to_string()))
     }

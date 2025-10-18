@@ -2,7 +2,7 @@ use memmap2::MmapMut;
 
 use crate::errors;
 
-// 24 length hex ID (ex 0000000D000000EA)
+// 16 length hex ID (ex 0000000D000000EA)
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct WalSegmentID(u64);
 
