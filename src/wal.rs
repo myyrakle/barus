@@ -395,10 +395,8 @@ impl WALManager {
         )?;
 
         // Set the header value (big-endian u32)
-        unsafe {
-            let ptr = self.wal_write_buffer.as_mut_ptr() as *mut u32;
-            *ptr = (payload_size as u32).to_be();
-        }
+        let header = (payload_size as u32).to_be_bytes();
+        self.wal_write_buffer[..WAL_RECORD_HEADER_SIZE].copy_from_slice(&header);
 
         let total_bytes = payload_size + WAL_RECORD_HEADER_SIZE;
 
