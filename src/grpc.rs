@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use tonic::{Request, Response, Status, transport::Server};
 
+use crate::config::GRPC_PORT;
 use crate::db::DBEngine;
 
 // Include the generated proto code
@@ -101,7 +102,7 @@ impl BarusService for BarusGrpcService {
 }
 
 pub async fn run_grpc_server(db_engine: Arc<DBEngine>) -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "0.0.0.0:50051".parse()?;
+    let addr = format!("0.0.0.0:{}", *GRPC_PORT).parse()?;
 
     println!("gRPC Server is running on {}", addr);
 
