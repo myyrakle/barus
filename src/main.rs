@@ -8,6 +8,10 @@ pub mod wal;
 use db::DBEngine;
 use std::sync::Arc;
 
+#[cfg(target_os = "linux")]
+#[global_allocator]
+static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Initializing DB Engine...");

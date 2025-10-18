@@ -65,8 +65,8 @@ impl DBEngine {
             record_id: 0,
             record_type: wal::RecordType::Put,
             data: WalPayload {
-                table: table,
-                key: key,
+                table,
+                key,
                 value: Some(value),
             },
         };

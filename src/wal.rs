@@ -1,3 +1,5 @@
+use bincode::config::{Configuration, Fixint, LittleEndian, NoLimit};
+use memmap2::MmapMut;
 use std::{
     fmt::Debug,
     path::{Path, PathBuf},
@@ -11,8 +13,9 @@ use tokio::{fs::OpenOptions, sync::Mutex};
 use crate::errors;
 
 pub const WAL_SEGMENT_SIZE: usize = 1024 * 1024 * 32; // 32MB
-pub const WAL_ZERO_CHUNK: [u8; WAL_SEGMENT_SIZE] = [0u8; WAL_SEGMENT_SIZE];
-pub const WAL_WRITE_BUFFER_SIZE: usize = WAL_RECORD_HEADER_SIZE + 10 * 1024 * 1024; // 최대 10MB 레코드 지원
+#[cfg(not(target_os = "linux"))]
+pub static WAL_ZERO_CHUNK: [u8; WAL_SEGMENT_SIZE] = [0u8; WAL_SEGMENT_SIZE];
+pub static WAL_WRITE_BUFFER_SIZE: usize = WAL_RECORD_HEADER_SIZE + 10 * 1024 * 1024; // 최대 10MB 레코드 지원
 
 pub const WAL_DIRECTORY: &str = "wal";
 pub const WAL_STATE_PATH: &str = "wal_state.json";
@@ -186,18 +189,24 @@ pub trait WalRecordCodec {
 
 pub struct WalRecordBincodeCodec;
 
+impl WalRecordBincodeCodec {
+    const CONFIG: Configuration<LittleEndian, Fixint, NoLimit> = bincode::config::standard()
+        .with_fixed_int_encoding()
+        .with_little_endian()
+        .with_no_limit();
+}
+
 impl WalRecordCodec for WalRecordBincodeCodec {
     fn encode(&self, record: &WalRecord, buf: &mut [u8]) -> errors::Result<usize> {
         // bincode 2.x uses encode_to_vec with config
-        bincode::encode_into_slice(record, buf, bincode::config::standard())
+        bincode::encode_into_slice(record, buf, Self::CONFIG)
             .map_err(|e| errors::Errors::WalRecordEncodeError(e.to_string()))
     }
 
     fn decode(&self, data: &[u8]) -> errors::Result<WalRecord> {
         // bincode 2.x uses decode_from_slice with config
-        let (decoded, _len): (WalRecord, usize) =
-            bincode::decode_from_slice(data, bincode::config::standard())
-                .map_err(|e| errors::Errors::WalRecordDecodeError(e.to_string()))?;
+        let (decoded, _len): (WalRecord, usize) = bincode::decode_from_slice(data, Self::CONFIG)
+            .map_err(|e| errors::Errors::WalRecordDecodeError(e.to_string()))?;
         Ok(decoded)
     }
 }
@@ -207,14 +216,9 @@ pub struct WALManager {
     base_path: PathBuf,
     state: WalGlobalState,
     background_fsync_duration: Option<std::time::Duration>,
-    always_use_fsync: bool,
     wal_write_handles: Arc<Mutex<WALWriteHandles>>,
     wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     wal_write_buffer: Vec<u8>,
-}
-
-pub struct WALWriteHandles {
-    current_segment_file: Option<tokio::fs::File>,
 }
 
 pub struct WALStateWriteHandles {
@@ -238,13 +242,10 @@ impl WALManager {
             codec,
             base_path,
             state: Default::default(),
-            wal_write_handles: Arc::new(Mutex::new(WALWriteHandles {
-                current_segment_file: None,
-            })),
+            wal_write_handles: Arc::new(Mutex::new(WALWriteHandles::empty())),
             wal_state_write_handles: Arc::new(Mutex::new(WALStateWriteHandles {
                 state_file: None,
             })),
-            always_use_fsync: false,
             background_fsync_duration: Some(std::time::Duration::from_secs(10)),
             wal_write_buffer,
         }
@@ -329,7 +330,8 @@ impl WALManager {
                 ))
             })?;
 
-        self.wal_write_handles.lock().await.current_segment_file = Some(file);
+        let last_offset = self.state.last_segment_file_offset as usize;
+        *self.wal_write_handles.lock().await = WALWriteHandles::new(file, last_offset).await?;
 
         Ok(())
     }
@@ -368,8 +370,8 @@ impl WALManager {
 
                     // fsync current segment file
                     #[allow(clippy::collapsible_if)]
-                    if let Some(file) = &state.current_segment_file {
-                        if let Err(e) = file.sync_data().await {
+                    if !state.is_empty() {
+                        if let Err(e) = state.flush() {
                             eprintln!("Failed to fsync WAL segment file: {}", e);
                             // Handle error (e.g., retry, log, etc.)
                         }
@@ -392,10 +394,13 @@ impl WALManager {
             &mut self.wal_write_buffer[WAL_RECORD_HEADER_SIZE..],
         )?;
 
-        let header_bytes = (payload_size as u32).to_be_bytes();
-        self.wal_write_buffer[0..WAL_RECORD_HEADER_SIZE].copy_from_slice(&header_bytes);
+        // Set the header value (big-endian u32)
+        unsafe {
+            let ptr = self.wal_write_buffer.as_mut_ptr() as *mut u32;
+            *ptr = (payload_size as u32).to_be();
+        }
 
-        let total_bytes = payload_size + header_bytes.len();
+        let total_bytes = payload_size + WAL_RECORD_HEADER_SIZE;
 
         // 2. Get Write Lock
         let write_mutex = self.wal_write_handles.clone();
@@ -407,28 +412,17 @@ impl WALManager {
         let current_segment_size = self.get_current_segment_file_size()?;
 
         if current_segment_size + total_bytes > WAL_SEGMENT_SIZE {
-            write_state.current_segment_file = Some(self.new_segment_file().await?);
+            *write_state = self.new_segment_file().await?;
         }
 
-        let file = write_state.current_segment_file.as_mut().ok_or_else(|| {
-            errors::Errors::WalSegmentFileOpenError(
+        if write_state.is_empty() {
+            return Err(errors::Errors::WalSegmentFileOpenError(
                 "Current WAL segment file is not opened".to_string(),
-            )
-        })?;
+            ));
+        }
 
         // 4. Write the record (header + payload)
-        file.write_all(&self.wal_write_buffer[..total_bytes])
-            .await
-            .map_err(|e| {
-                errors::Errors::WalRecordWriteError(format!("Failed to write WAL record: {}", e))
-            })?;
-
-        // 5. datasync (Optional)
-        if self.always_use_fsync {
-            file.sync_data()
-                .await
-                .map_err(|e| errors::Errors::WalRecordWriteError(e.to_string()))?;
-        }
+        write_state.write(&self.wal_write_buffer[..total_bytes])?;
 
         self.state.last_record_id = new_record_id;
         self.state.last_segment_file_offset += total_bytes as u64;
@@ -532,7 +526,7 @@ impl WALManager {
         })
     }
 
-    async fn new_segment_file(&mut self) -> errors::Result<tokio::fs::File> {
+    async fn new_segment_file(&mut self) -> errors::Result<WALWriteHandles> {
         self.state.last_segment_id.increment();
 
         let new_segment_id = &self.state.last_segment_id;
@@ -593,7 +587,7 @@ impl WALManager {
 
             self.state.last_segment_file_offset = 0;
 
-            Ok(file)
+            Ok(WALWriteHandles::new(file, 0).await?)
         }
 
         #[cfg(not(target_os = "linux"))]
@@ -632,7 +626,7 @@ impl WALManager {
 
             self.state.last_segment_file_offset = 0;
 
-            Ok(file)
+            Ok(WALWriteHandles::new(file).await?)
         }
     }
 
@@ -644,5 +638,51 @@ impl WALManager {
         })?;
 
         self.state.save(file).await
+    }
+}
+
+pub struct WALWriteHandles {
+    mmap: MmapMut,
+    offset: usize,
+}
+
+impl WALWriteHandles {
+    // empty writer (for initialization)
+    pub fn empty() -> Self {
+        Self {
+            mmap: MmapMut::map_anon(0).unwrap(),
+            offset: 0,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.mmap.len() == 0
+    }
+
+    pub async fn new(file: tokio::fs::File, offset: usize) -> errors::Result<Self> {
+        let mmap = unsafe {
+            MmapMut::map_mut(&file).map_err(|e| {
+                errors::Errors::WalSegmentFileOpenError(format!(
+                    "Failed to mmap WAL segment file: {}",
+                    e
+                ))
+            })?
+        };
+
+        Ok(Self { mmap, offset })
+    }
+
+    pub fn write(&mut self, data: &[u8]) -> errors::Result<()> {
+        let len = data.len();
+        self.mmap[self.offset..self.offset + len].copy_from_slice(data);
+        self.offset += len;
+        Ok(())
+    }
+
+    pub fn flush(&self) -> errors::Result<()> {
+        self.mmap.flush().map_err(|e| {
+            errors::Errors::WalRecordWriteError(format!("Failed to flush WAL segment mmap: {}", e))
+        })?;
+        Ok(())
     }
 }
