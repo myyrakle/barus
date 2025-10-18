@@ -1,4 +1,5 @@
 use bincode::config::{Configuration, Fixint, LittleEndian, NoLimit};
+use memmap2::MmapMut;
 use std::{
     fmt::Debug,
     path::{Path, PathBuf},
@@ -220,10 +221,6 @@ pub struct WALManager {
     wal_write_buffer: Vec<u8>,
 }
 
-pub struct WALWriteHandles {
-    current_segment_file: Option<tokio::fs::File>,
-}
-
 pub struct WALStateWriteHandles {
     state_file: Option<tokio::fs::File>,
 }
@@ -245,9 +242,7 @@ impl WALManager {
             codec,
             base_path,
             state: Default::default(),
-            wal_write_handles: Arc::new(Mutex::new(WALWriteHandles {
-                current_segment_file: None,
-            })),
+            wal_write_handles: Arc::new(Mutex::new(WALWriteHandles::empty())),
             wal_state_write_handles: Arc::new(Mutex::new(WALStateWriteHandles {
                 state_file: None,
             })),
@@ -335,7 +330,8 @@ impl WALManager {
                 ))
             })?;
 
-        self.wal_write_handles.lock().await.current_segment_file = Some(file);
+        let last_offset = self.state.last_segment_file_offset as usize;
+        *self.wal_write_handles.lock().await = WALWriteHandles::new(file, last_offset).await?;
 
         Ok(())
     }
@@ -374,8 +370,8 @@ impl WALManager {
 
                     // fsync current segment file
                     #[allow(clippy::collapsible_if)]
-                    if let Some(file) = &state.current_segment_file {
-                        if let Err(e) = file.sync_data().await {
+                    if !state.is_empty() {
+                        if let Err(e) = state.flush() {
                             eprintln!("Failed to fsync WAL segment file: {}", e);
                             // Handle error (e.g., retry, log, etc.)
                         }
@@ -416,21 +412,17 @@ impl WALManager {
         let current_segment_size = self.get_current_segment_file_size()?;
 
         if current_segment_size + total_bytes > WAL_SEGMENT_SIZE {
-            write_state.current_segment_file = Some(self.new_segment_file().await?);
+            *write_state = self.new_segment_file().await?;
         }
 
-        let file = write_state.current_segment_file.as_mut().ok_or_else(|| {
-            errors::Errors::WalSegmentFileOpenError(
+        if write_state.is_empty() {
+            return Err(errors::Errors::WalSegmentFileOpenError(
                 "Current WAL segment file is not opened".to_string(),
-            )
-        })?;
+            ));
+        }
 
         // 4. Write the record (header + payload)
-        file.write_all(&self.wal_write_buffer[..total_bytes])
-            .await
-            .map_err(|e| {
-                errors::Errors::WalRecordWriteError(format!("Failed to write WAL record: {}", e))
-            })?;
+        write_state.write(&self.wal_write_buffer[..total_bytes])?;
 
         self.state.last_record_id = new_record_id;
         self.state.last_segment_file_offset += total_bytes as u64;
@@ -534,7 +526,7 @@ impl WALManager {
         })
     }
 
-    async fn new_segment_file(&mut self) -> errors::Result<tokio::fs::File> {
+    async fn new_segment_file(&mut self) -> errors::Result<WALWriteHandles> {
         self.state.last_segment_id.increment();
 
         let new_segment_id = &self.state.last_segment_id;
@@ -595,7 +587,7 @@ impl WALManager {
 
             self.state.last_segment_file_offset = 0;
 
-            Ok(file)
+            Ok(WALWriteHandles::new(file, 0).await?)
         }
 
         #[cfg(not(target_os = "linux"))]
@@ -634,7 +626,7 @@ impl WALManager {
 
             self.state.last_segment_file_offset = 0;
 
-            Ok(file)
+            Ok(WALWriteHandles::new(file).await?)
         }
     }
 
@@ -646,5 +638,51 @@ impl WALManager {
         })?;
 
         self.state.save(file).await
+    }
+}
+
+pub struct WALWriteHandles {
+    mmap: MmapMut,
+    offset: usize,
+}
+
+impl WALWriteHandles {
+    // empty writer (for initialization)
+    pub fn empty() -> Self {
+        Self {
+            mmap: MmapMut::map_anon(0).unwrap(),
+            offset: 0,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.mmap.len() == 0
+    }
+
+    pub async fn new(file: tokio::fs::File, offset: usize) -> errors::Result<Self> {
+        let mmap = unsafe {
+            MmapMut::map_mut(&file).map_err(|e| {
+                errors::Errors::WalSegmentFileOpenError(format!(
+                    "Failed to mmap WAL segment file: {}",
+                    e
+                ))
+            })?
+        };
+
+        Ok(Self { mmap, offset })
+    }
+
+    pub fn write(&mut self, data: &[u8]) -> errors::Result<()> {
+        let len = data.len();
+        self.mmap[self.offset..self.offset + len].copy_from_slice(data);
+        self.offset += len;
+        Ok(())
+    }
+
+    pub fn flush(&self) -> errors::Result<()> {
+        self.mmap.flush().map_err(|e| {
+            errors::Errors::WalRecordWriteError(format!("Failed to flush WAL segment mmap: {}", e))
+        })?;
+        Ok(())
     }
 }
