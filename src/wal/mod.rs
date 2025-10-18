@@ -1,16 +1,20 @@
-use bincode::config::{Configuration, Fixint, LittleEndian, NoLimit};
-use memmap2::MmapMut;
-use std::{
-    fmt::Debug,
-    path::{Path, PathBuf},
-    sync::Arc,
-    vec,
-};
-use tokio::io::{AsyncSeekExt, AsyncWriteExt};
-
+use std::{fmt::Debug, path::PathBuf, sync::Arc, vec};
 use tokio::{fs::OpenOptions, sync::Mutex};
 
-use crate::errors;
+use crate::{
+    errors,
+    wal::{
+        encode::WalRecordCodec,
+        record::WalRecord,
+        segment::{WALSegmentWriteHandle, WalSegmentID},
+        state::{WALStateWriteHandles, WalGlobalState},
+    },
+};
+
+pub mod encode;
+pub mod record;
+pub mod segment;
+pub mod state;
 
 pub const WAL_SEGMENT_SIZE: usize = 1024 * 1024 * 32; // 32MB
 #[cfg(not(target_os = "linux"))]
@@ -21,217 +25,14 @@ pub const WAL_DIRECTORY: &str = "wal";
 pub const WAL_STATE_PATH: &str = "wal_state.json";
 pub const WAL_RECORD_HEADER_SIZE: usize = 4; // 4 bytes for record length
 
-// 24 length hex ID (ex 0000000D000000EA)
-#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
-pub struct WalSegmentID(u64);
-
-impl std::ops::Add<u64> for WalSegmentID {
-    type Output = WalSegmentID;
-
-    fn add(self, rhs: u64) -> Self::Output {
-        WalSegmentID(self.0 + rhs)
-    }
-}
-
-impl WalSegmentID {
-    pub fn new(id: u64) -> Self {
-        WalSegmentID(id)
-    }
-
-    pub fn increment(&mut self) {
-        self.0 += 1;
-    }
-}
-
-impl From<WalSegmentID> for u64 {
-    fn from(val: WalSegmentID) -> Self {
-        val.0
-    }
-}
-
-impl From<&WalSegmentID> for String {
-    fn from(val: &WalSegmentID) -> Self {
-        format!("{:016X}", val.0)
-    }
-}
-
-impl TryFrom<&str> for WalSegmentID {
-    type Error = errors::Errors;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        if value.len() != 16 {
-            return Err(errors::Errors::WalSegmentIDParseError(
-                "Invalid segment ID length".to_string(),
-            ));
-        }
-
-        let id = u64::from_str_radix(value, 16).map_err(|e| {
-            errors::Errors::WalSegmentIDParseError(format!("Failed to parse segment ID: {}", e))
-        })?;
-
-        Ok(WalSegmentID(id))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
-pub struct WalRecordID(u64);
-
-#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
-pub struct WalGlobalState {
-    pub last_record_id: u64,
-    pub last_checkpoint_record_id: u64,
-    pub last_segment_id: WalSegmentID,
-    pub last_checkpoint_segment_id: WalSegmentID,
-    pub last_segment_file_offset: u64,
-}
-
-impl WalGlobalState {
-    // Load the WAL global state from a file (if exists)
-    pub async fn load(base_path: &Path) -> errors::Result<Self> {
-        let wal_state_path = base_path.join(WAL_STATE_PATH);
-
-        if !wal_state_path.exists() {
-            return Err(errors::Errors::WalStateReadError(
-                "WAL state file does not exist".to_string(),
-            ));
-        }
-
-        let data = std::fs::read(wal_state_path)
-            .map_err(|e| errors::Errors::WalStateReadError(e.to_string()))?;
-        let state = serde_json::from_slice(&data)
-            .map_err(|e| errors::Errors::WalStateDecodeError(e.to_string()))?;
-
-        Ok(state)
-    }
-
-    pub async fn get_file_init_handle(&self, base_path: &Path) -> errors::Result<tokio::fs::File> {
-        let wal_state_path = base_path.join(WAL_STATE_PATH);
-
-        let file = tokio::fs::OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(wal_state_path)
-            .await
-            .map_err(|e| errors::Errors::WalStateWriteError(e.to_string()))?;
-
-        Ok(file)
-    }
-
-    pub async fn get_file_handle(&self, base_path: &Path) -> errors::Result<tokio::fs::File> {
-        let wal_state_path = base_path.join(WAL_STATE_PATH);
-
-        let file = tokio::fs::OpenOptions::new()
-            .write(true)
-            .open(wal_state_path)
-            .await
-            .map_err(|e| errors::Errors::WalStateWriteError(e.to_string()))?;
-
-        Ok(file)
-    }
-
-    // Save the WAL global state to a file
-    pub async fn save(&self, file_handle: &mut tokio::fs::File) -> errors::Result<()> {
-        let data = serde_json::to_vec(self)
-            .map_err(|e| errors::Errors::WalRecordEncodeError(e.to_string()))?;
-
-        file_handle
-            .seek(std::io::SeekFrom::Start(0))
-            .await
-            .map_err(|e| errors::Errors::WalStateWriteError(e.to_string()))?;
-
-        file_handle
-            .write_all(&data)
-            .await
-            .map_err(|e| errors::Errors::WalStateWriteError(e.to_string()))?;
-
-        file_handle
-            .set_len(data.len() as u64)
-            .await
-            .map_err(|e| errors::Errors::WalStateWriteError(e.to_string()))?;
-
-        Ok(())
-    }
-}
-
-#[derive(
-    Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode,
-)]
-pub struct WalPayload {
-    pub table: String,
-    pub key: String,
-    pub value: Option<String>,
-}
-
-#[derive(
-    Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode,
-)]
-pub struct WalRecord {
-    pub record_id: u64,
-    pub record_type: RecordType,
-    pub data: WalPayload,
-}
-
-#[derive(
-    Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode,
-)]
-pub enum RecordType {
-    #[serde(rename = "put")]
-    Put,
-    #[serde(rename = "delete")]
-    Delete,
-}
-
-pub trait WalRecordCodec {
-    fn encode(&self, record: &WalRecord, buf: &mut [u8]) -> errors::Result<usize>;
-    fn decode(&self, data: &[u8]) -> errors::Result<WalRecord>;
-}
-
-pub struct WalRecordBincodeCodec;
-
-impl WalRecordBincodeCodec {
-    const CONFIG: Configuration<LittleEndian, Fixint, NoLimit> = bincode::config::standard()
-        .with_fixed_int_encoding()
-        .with_little_endian()
-        .with_no_limit();
-}
-
-impl WalRecordCodec for WalRecordBincodeCodec {
-    fn encode(&self, record: &WalRecord, buf: &mut [u8]) -> errors::Result<usize> {
-        // bincode 2.x uses encode_to_vec with config
-        bincode::encode_into_slice(record, buf, Self::CONFIG)
-            .map_err(|e| errors::Errors::WalRecordEncodeError(e.to_string()))
-    }
-
-    fn decode(&self, data: &[u8]) -> errors::Result<WalRecord> {
-        // bincode 2.x uses decode_from_slice with config
-        let (decoded, _len): (WalRecord, usize) = bincode::decode_from_slice(data, Self::CONFIG)
-            .map_err(|e| errors::Errors::WalRecordDecodeError(e.to_string()))?;
-        Ok(decoded)
-    }
-}
-
 pub struct WALManager {
     codec: Box<dyn WalRecordCodec + Send + Sync>,
     base_path: PathBuf,
     state: WalGlobalState,
     background_fsync_duration: Option<std::time::Duration>,
-    wal_write_handles: Arc<Mutex<WALWriteHandles>>,
+    wal_write_handles: Arc<Mutex<WALSegmentWriteHandle>>,
     wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     wal_write_buffer: Vec<u8>,
-}
-
-pub struct WALStateWriteHandles {
-    state_file: Option<tokio::fs::File>,
-}
-
-impl Debug for WALManager {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WALManager")
-            .field("base_path", &self.base_path)
-            .field("state", &self.state)
-            .finish()
-    }
 }
 
 impl WALManager {
@@ -242,7 +43,7 @@ impl WALManager {
             codec,
             base_path,
             state: Default::default(),
-            wal_write_handles: Arc::new(Mutex::new(WALWriteHandles::empty())),
+            wal_write_handles: Arc::new(Mutex::new(WALSegmentWriteHandle::empty())),
             wal_state_write_handles: Arc::new(Mutex::new(WALStateWriteHandles {
                 state_file: None,
             })),
@@ -331,7 +132,8 @@ impl WALManager {
             })?;
 
         let last_offset = self.state.last_segment_file_offset as usize;
-        *self.wal_write_handles.lock().await = WALWriteHandles::new(file, last_offset).await?;
+        *self.wal_write_handles.lock().await =
+            WALSegmentWriteHandle::new(file, last_offset).await?;
 
         Ok(())
     }
@@ -395,10 +197,8 @@ impl WALManager {
         )?;
 
         // Set the header value (big-endian u32)
-        unsafe {
-            let ptr = self.wal_write_buffer.as_mut_ptr() as *mut u32;
-            *ptr = (payload_size as u32).to_be();
-        }
+        let header = (payload_size as u32).to_be_bytes();
+        self.wal_write_buffer[..WAL_RECORD_HEADER_SIZE].copy_from_slice(&header);
 
         let total_bytes = payload_size + WAL_RECORD_HEADER_SIZE;
 
@@ -526,7 +326,7 @@ impl WALManager {
         })
     }
 
-    async fn new_segment_file(&mut self) -> errors::Result<WALWriteHandles> {
+    async fn new_segment_file(&mut self) -> errors::Result<WALSegmentWriteHandle> {
         self.state.last_segment_id.increment();
 
         let new_segment_id = &self.state.last_segment_id;
@@ -551,6 +351,8 @@ impl WALManager {
                 })?;
 
             use std::os::fd::{AsFd, AsRawFd};
+
+            use crate::wal::segment::WALSegmentWriteHandle;
 
             let fd = file.as_fd().as_raw_fd();
             let result = unsafe {
@@ -587,7 +389,7 @@ impl WALManager {
 
             self.state.last_segment_file_offset = 0;
 
-            Ok(WALWriteHandles::new(file, 0).await?)
+            WALSegmentWriteHandle::new(file, 0).await
         }
 
         #[cfg(not(target_os = "linux"))]
@@ -626,7 +428,7 @@ impl WALManager {
 
             self.state.last_segment_file_offset = 0;
 
-            Ok(WALWriteHandles::new(file).await?)
+            Ok(WALSegmentWriteHandle::new(file).await?)
         }
     }
 
@@ -641,48 +443,11 @@ impl WALManager {
     }
 }
 
-pub struct WALWriteHandles {
-    mmap: MmapMut,
-    offset: usize,
-}
-
-impl WALWriteHandles {
-    // empty writer (for initialization)
-    pub fn empty() -> Self {
-        Self {
-            mmap: MmapMut::map_anon(0).unwrap(),
-            offset: 0,
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.mmap.len() == 0
-    }
-
-    pub async fn new(file: tokio::fs::File, offset: usize) -> errors::Result<Self> {
-        let mmap = unsafe {
-            MmapMut::map_mut(&file).map_err(|e| {
-                errors::Errors::WalSegmentFileOpenError(format!(
-                    "Failed to mmap WAL segment file: {}",
-                    e
-                ))
-            })?
-        };
-
-        Ok(Self { mmap, offset })
-    }
-
-    pub fn write(&mut self, data: &[u8]) -> errors::Result<()> {
-        let len = data.len();
-        self.mmap[self.offset..self.offset + len].copy_from_slice(data);
-        self.offset += len;
-        Ok(())
-    }
-
-    pub fn flush(&self) -> errors::Result<()> {
-        self.mmap.flush().map_err(|e| {
-            errors::Errors::WalRecordWriteError(format!("Failed to flush WAL segment mmap: {}", e))
-        })?;
-        Ok(())
+impl Debug for WALManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WALManager")
+            .field("base_path", &self.base_path)
+            .field("state", &self.state)
+            .finish()
     }
 }
