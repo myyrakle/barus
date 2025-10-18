@@ -13,7 +13,7 @@ pub struct WalGlobalState {
     pub last_checkpoint_record_id: u64,
     pub last_segment_id: WalSegmentID,
     pub last_checkpoint_segment_id: WalSegmentID,
-    pub last_segment_file_offset: u64,
+    pub last_segment_file_offset: usize,
 }
 
 impl WalGlobalState {
