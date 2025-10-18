@@ -19,7 +19,6 @@ pub mod state;
 pub const WAL_SEGMENT_SIZE: usize = 1024 * 1024 * 32; // 32MB
 #[cfg(not(target_os = "linux"))]
 pub static WAL_ZERO_CHUNK: [u8; WAL_SEGMENT_SIZE] = [0u8; WAL_SEGMENT_SIZE];
-pub static WAL_WRITE_BUFFER_SIZE: usize = WAL_RECORD_HEADER_SIZE + 10 * 1024 * 1024; // 최대 10MB 레코드 지원
 
 pub const WAL_DIRECTORY: &str = "wal";
 pub const WAL_STATE_PATH: &str = "wal_state.json";
@@ -32,13 +31,10 @@ pub struct WALManager {
     background_fsync_duration: Option<std::time::Duration>,
     wal_write_handles: Arc<Mutex<WALSegmentWriteHandle>>,
     wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
-    wal_write_buffer: Vec<u8>,
 }
 
 impl WALManager {
     pub fn new(codec: Box<dyn WalRecordCodec + Send + Sync>, base_path: PathBuf) -> Self {
-        let wal_write_buffer = vec![0u8; WAL_WRITE_BUFFER_SIZE];
-
         Self {
             codec,
             base_path,
@@ -48,7 +44,6 @@ impl WALManager {
                 state_file: None,
             })),
             background_fsync_duration: Some(std::time::Duration::from_secs(10)),
-            wal_write_buffer,
         }
     }
 
@@ -131,9 +126,7 @@ impl WALManager {
                 ))
             })?;
 
-        let last_offset = self.state.last_segment_file_offset as usize;
-        *self.wal_write_handles.lock().await =
-            WALSegmentWriteHandle::new(file, last_offset).await?;
+        *self.wal_write_handles.lock().await = WALSegmentWriteHandle::new(file).await?;
 
         Ok(())
     }
@@ -148,7 +141,7 @@ impl WALManager {
         if let Some(last_segment_file) = segment_files.last() {
             let (records, offset) = self.scan_records(last_segment_file).await?;
 
-            self.state.last_segment_file_offset = offset as u64;
+            self.state.last_segment_file_offset = offset;
 
             if let Some(last_record) = records.last() {
                 self.state.last_record_id = last_record.record_id;
@@ -187,33 +180,10 @@ impl WALManager {
 
     // Append a new record to the WAL
     pub async fn append(&mut self, mut record: WalRecord) -> errors::Result<()> {
-        // 1. Serialize the record (thread free)
-        let new_record_id = self.state.last_record_id + 1;
-        record.record_id = new_record_id;
-
-        let payload_size = self.codec.encode(
-            &record,
-            &mut self.wal_write_buffer[WAL_RECORD_HEADER_SIZE..],
-        )?;
-
-        // Set the header value (big-endian u32)
-        let header = (payload_size as u32).to_be_bytes();
-        self.wal_write_buffer[..WAL_RECORD_HEADER_SIZE].copy_from_slice(&header);
-
-        let total_bytes = payload_size + WAL_RECORD_HEADER_SIZE;
-
-        // 2. Get Write Lock
+        // 1. Get Write Lock
         let write_mutex = self.wal_write_handles.clone();
 
         let mut write_state = write_mutex.lock().await;
-
-        // 3. Check if need to new segment file.
-        // If current segment file size + new record size > WAL_SEGMENT_SIZE, create new segment file
-        let current_segment_size = self.get_current_segment_file_size()?;
-
-        if current_segment_size + total_bytes > WAL_SEGMENT_SIZE {
-            *write_state = self.new_segment_file().await?;
-        }
 
         if write_state.is_empty() {
             return Err(errors::Errors::WalSegmentFileOpenError(
@@ -221,11 +191,37 @@ impl WALManager {
             ));
         }
 
-        // 4. Write the record (header + payload)
-        write_state.write(&self.wal_write_buffer[..total_bytes])?;
+        // 2. Check if need to new segment file.
+        // If current segment file size + new record size > WAL_SEGMENT_SIZE, create new segment file
+        let current_segment_size = self.get_current_segment_file_size()?;
+
+        if current_segment_size + record.size() > WAL_SEGMENT_SIZE {
+            *write_state = self.new_segment_file().await?;
+        }
+
+        // 3. Serialize the record and write (zero copy)
+        let payload_start_offset =
+            self.state.last_segment_file_offset + WAL_RECORD_HEADER_SIZE as usize;
+
+        let new_record_id = self.state.last_record_id + 1;
+        record.record_id = new_record_id;
+
+        let payload_size = self
+            .codec
+            .encode(&record, &mut write_state.mmap[payload_start_offset..])?;
+
+        // 4. Set the header value
+        let header_start_offset = self.state.last_segment_file_offset;
+        let header_end_offset =
+            self.state.last_segment_file_offset + WAL_RECORD_HEADER_SIZE as usize;
+
+        let header = (payload_size as u32).to_be_bytes();
+        write_state.mmap[header_start_offset..header_end_offset].copy_from_slice(&header);
+
+        let total_bytes = payload_size + WAL_RECORD_HEADER_SIZE;
 
         self.state.last_record_id = new_record_id;
-        self.state.last_segment_file_offset += total_bytes as u64;
+        self.state.last_segment_file_offset += total_bytes;
 
         Ok(())
     }
@@ -389,7 +385,7 @@ impl WALManager {
 
             self.state.last_segment_file_offset = 0;
 
-            WALSegmentWriteHandle::new(file, 0).await
+            WALSegmentWriteHandle::new(file).await
         }
 
         #[cfg(not(target_os = "linux"))]

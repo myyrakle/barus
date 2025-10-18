@@ -55,8 +55,7 @@ impl TryFrom<&str> for WalSegmentID {
 }
 
 pub struct WALSegmentWriteHandle {
-    mmap: MmapMut,
-    offset: usize,
+    pub(crate) mmap: MmapMut,
 }
 
 impl WALSegmentWriteHandle {
@@ -64,7 +63,6 @@ impl WALSegmentWriteHandle {
     pub fn empty() -> Self {
         Self {
             mmap: MmapMut::map_anon(0).unwrap(),
-            offset: 0,
         }
     }
 
@@ -72,7 +70,7 @@ impl WALSegmentWriteHandle {
         self.mmap.len() == 0
     }
 
-    pub async fn new(file: tokio::fs::File, offset: usize) -> errors::Result<Self> {
+    pub async fn new(file: tokio::fs::File) -> errors::Result<Self> {
         let mmap = unsafe {
             MmapMut::map_mut(&file).map_err(|e| {
                 errors::Errors::WalSegmentFileOpenError(format!(
@@ -82,15 +80,15 @@ impl WALSegmentWriteHandle {
             })?
         };
 
-        Ok(Self { mmap, offset })
+        Ok(Self { mmap })
     }
 
-    pub fn write(&mut self, data: &[u8]) -> errors::Result<()> {
-        let len = data.len();
-        self.mmap[self.offset..self.offset + len].copy_from_slice(data);
-        self.offset += len;
-        Ok(())
-    }
+    // pub fn write(&mut self, data: &[u8]) -> errors::Result<()> {
+    //     let len = data.len();
+    //     self.mmap[self.offset..self.offset + len].copy_from_slice(data);
+    //     self.offset += len;
+    //     Ok(())
+    // }
 
     pub fn flush(&self) -> errors::Result<()> {
         self.mmap.flush().map_err(|e| {
