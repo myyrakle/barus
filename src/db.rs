@@ -5,6 +5,7 @@ use tokio::sync::Mutex;
 use crate::{
     errors,
     memtable::{MemtableGetResult, MemtableManager},
+    system::get_system_info,
     wal::{
         self, WALManager,
         encode::WalRecordBincodeCodec,
@@ -36,7 +37,10 @@ impl DBEngine {
     }
 
     pub async fn initialize(&mut self) -> errors::Result<()> {
-        // 1. Initialize the database directory
+        // 1. Load System Info
+        let system_info = get_system_info();
+
+        // 2. Initialize the database directory
         // Create DB directory if not exists
         std::fs::create_dir_all(&self.base_path).or_else(|e| {
             if e.kind() == std::io::ErrorKind::AlreadyExists {
@@ -49,16 +53,17 @@ impl DBEngine {
             }
         })?;
 
-        // 2. TODO: Global Setting Init
+        // 3. TODO: Global Setting Init
 
-        // 3. Initialize and load the WAL manager
-        let mut wal = self.wal_manager.lock().await;
-        wal.initialize().await?;
-        wal.load().await?;
-        wal.start_background()?;
-        drop(wal); // 명시적으로 Lock 해제
+        // 4. Initialize and load the WAL manager
+        {
+            let mut wal = self.wal_manager.lock().await;
+            wal.initialize().await?;
+            wal.load().await?;
+            wal.start_background()?;
+        }
 
-        // 4. TODO: Basic Table Setting Init
+        // 5. TODO: Basic Table Setting Init
 
         Ok(())
     }
