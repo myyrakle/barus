@@ -4,6 +4,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     errors,
+    memtable::{MemtableGetResult, MemtableManager},
     wal::{
         self, WALManager,
         encode::WalRecordBincodeCodec,
@@ -15,6 +16,7 @@ use crate::{
 pub struct DBEngine {
     base_path: PathBuf,
     wal_manager: Arc<Mutex<WALManager>>,
+    memtable_manager: Arc<MemtableManager>,
 }
 
 pub struct GetResponse {
@@ -29,6 +31,7 @@ impl DBEngine {
                 Box::new(WalRecordBincodeCodec {}),
                 base_path,
             ))),
+            memtable_manager: Arc::new(MemtableManager::new()),
         }
     }
 
@@ -60,8 +63,29 @@ impl DBEngine {
         Ok(())
     }
 
-    pub async fn get(&self, _table: &str, _key: &str) -> errors::Result<GetResponse> {
-        unimplemented!()
+    pub async fn get(&self, table: &str, key: &str) -> errors::Result<GetResponse> {
+        // 1. Try to get from Memtable
+        let memtable_result = self.memtable_manager.get(table, key).await?;
+
+        match memtable_result {
+            MemtableGetResult::Deleted => {
+                return Err(errors::Errors::ValueNotFound(format!(
+                    "Key not found (deleted): {}",
+                    key
+                )));
+            }
+            MemtableGetResult::Found(value) => {
+                return Ok(GetResponse {
+                    value: value.into_bytes(),
+                });
+            }
+            MemtableGetResult::NotFound => {}
+        }
+
+        // 2. Try to get from disk area (not implemented yet)
+        let response = GetResponse { value: vec![] };
+
+        Ok(response)
     }
 
     pub async fn put(&self, table: String, key: String, value: String) -> errors::Result<()> {
@@ -69,14 +93,20 @@ impl DBEngine {
             record_id: 0,
             record_type: wal::record::RecordType::Put,
             data: WalPayload {
-                table,
-                key,
-                value: Some(value),
+                table: table.clone(),
+                key: key.clone(),
+                value: Some(value.clone()),
             },
         };
 
+        // 1. WAL write
         {
             self.wal_manager.lock().await.append(wal_record).await?;
+        }
+
+        // 2. Memtable update
+        {
+            self.memtable_manager.put(table, key, value).await?;
         }
 
         // unimplemented!()
@@ -97,8 +127,14 @@ impl DBEngine {
             },
         };
 
+        // 1. WAL write
         {
             self.wal_manager.lock().await.append(wal_record).await?;
+        }
+
+        // 2. Memtable update
+        {
+            self.memtable_manager.delete(table, key).await?;
         }
 
         // TODO: 메인 테이블 데이터 및 Tree 인덱스 업데이트
