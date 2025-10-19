@@ -1,6 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, atomic::AtomicU64},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use tokio::sync::{Mutex, RwLock};
@@ -32,25 +35,30 @@ impl MemtableManager {
 
     pub async fn put(&self, table: String, key: String, value: String) -> errors::Result<()> {
         let bytes = key.len() + value.len();
-        let currnet_size = self
-            .memtable_current_size
-            .fetch_add(bytes as u64, std::sync::atomic::Ordering::SeqCst);
 
-        // blocking write if limit exceeded
-        if currnet_size + (bytes as u64) > MEMTABLE_SIZE_HARD_LIMIT as u64 {
-            loop {
-                let current_size = self
+        // 1. blocking until enough space is available
+        loop {
+            let current = self.memtable_current_size.load(Ordering::SeqCst);
+            if current + (bytes as u64) <= MEMTABLE_SIZE_HARD_LIMIT as u64 {
+                if self
                     .memtable_current_size
-                    .load(std::sync::atomic::Ordering::SeqCst);
-
-                if current_size + (bytes as u64) < MEMTABLE_SIZE_HARD_LIMIT as u64 {
+                    .compare_exchange(
+                        current,
+                        current + (bytes as u64),
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                    )
+                    .is_ok()
+                {
                     break;
                 }
-
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                // CAS 경쟁: 재시도
+            } else {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
         }
 
+        // 2. get or create memtable for the table
         let memtable = {
             let memtable_map = self.memtable_map.read().await;
 
@@ -67,8 +75,15 @@ impl MemtableManager {
             }
         };
 
+        // 3. put the key-value into the memtable
         let mut memtable_lock = memtable.lock().await;
-        memtable_lock.put(key, value);
+        let old_value_size = memtable_lock.put(key, value);
+
+        // 4. adjust current size if there was an old value
+        if let Some(old_size) = old_value_size {
+            self.memtable_current_size
+                .fetch_sub(old_size as u64, Ordering::SeqCst);
+        }
 
         Ok(())
     }
@@ -136,8 +151,19 @@ impl HashMemtable {
         }
     }
 
-    pub fn put(&mut self, key: String, value: String) {
-        self.table.insert(key, MemtableEntry { value: Some(value) });
+    // Returns previous value size if key existed
+    pub fn put(&mut self, key: String, value: String) -> Option<usize> {
+        match self.table.get_mut(&key) {
+            Some(entry) => {
+                let prev = entry.value.as_ref().map(|v| v.len()).unwrap_or(0);
+                entry.value = Some(value);
+                Some(prev)
+            }
+            None => {
+                self.table.insert(key, MemtableEntry { value: Some(value) });
+                None
+            }
+        }
     }
 
     pub fn get(&self, key: &str) -> MemtableGetResult {
@@ -150,10 +176,12 @@ impl HashMemtable {
         }
     }
 
-    pub fn delete(&mut self, key: &str) -> Option<()> {
+    pub fn delete(&mut self, key: &str) -> Option<usize> {
         if let Some(entry) = self.table.get_mut(key) {
+            let old_size = entry.value.as_ref().map(|v| v.len()).unwrap_or(0);
+
             entry.value = None;
-            Some(())
+            Some(old_size)
         } else {
             None
         }
