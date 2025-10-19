@@ -10,6 +10,8 @@ pub enum Errors {
     WalStateWriteError(String),
     WalSegmentIDParseError(String),
     WalSegmentFileOpenError(String),
+    TableNotFound(String),
+    ValueNotFound(String),
 }
 
 impl std::fmt::Display for Errors {
@@ -27,6 +29,8 @@ impl std::fmt::Display for Errors {
             Errors::WalSegmentFileOpenError(msg) => {
                 write!(f, "WAL Segment File Open Error: {}", msg)
             }
+            Errors::TableNotFound(msg) => write!(f, "Table Not Found: {}", msg),
+            Errors::ValueNotFound(msg) => write!(f, "Value Not Found: {}", msg),
         }
     }
 }

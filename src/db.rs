@@ -4,6 +4,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     errors,
+    memtable::MemtableManager,
     wal::{
         self, WALManager,
         encode::WalRecordBincodeCodec,
@@ -15,6 +16,7 @@ use crate::{
 pub struct DBEngine {
     base_path: PathBuf,
     wal_manager: Arc<Mutex<WALManager>>,
+    memtable_manager: Arc<MemtableManager>,
 }
 
 pub struct GetResponse {
@@ -29,6 +31,7 @@ impl DBEngine {
                 Box::new(WalRecordBincodeCodec {}),
                 base_path,
             ))),
+            memtable_manager: Arc::new(MemtableManager::new()),
         }
     }
 
@@ -69,14 +72,20 @@ impl DBEngine {
             record_id: 0,
             record_type: wal::record::RecordType::Put,
             data: WalPayload {
-                table,
-                key,
-                value: Some(value),
+                table: table.clone(),
+                key: key.clone(),
+                value: Some(value.clone()),
             },
         };
 
+        // 1. WAL write
         {
             self.wal_manager.lock().await.append(wal_record).await?;
+        }
+
+        // 2. Memtable update
+        {
+            self.memtable_manager.put(&table, key, value).await?;
         }
 
         // unimplemented!()
