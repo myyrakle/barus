@@ -40,7 +40,7 @@ impl BarusService for BarusGrpcService {
 
         match self.db.get(&req.table, &req.key).await {
             Ok(result) => {
-                let value = String::from_utf8_lossy(&result.value).to_string();
+                let value = result.value;
                 Ok(Response::new(GetResponse {
                     key: req.key,
                     value,

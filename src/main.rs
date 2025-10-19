@@ -1,5 +1,6 @@
 pub mod config;
 pub mod db;
+pub mod disktable;
 pub mod errors;
 pub mod grpc;
 pub mod http;

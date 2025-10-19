@@ -57,7 +57,7 @@ async fn get_value(
         Ok(res) => {
             let response = GetValueResponse {
                 key,
-                value: String::from_utf8_lossy(&res.value).to_string(),
+                value: res.value,
             };
 
             Response::builder()
