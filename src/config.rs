@@ -15,3 +15,6 @@ pub static GRPC_PORT: LazyLock<u16> = LazyLock::new(|| {
         .and_then(|val| val.parse().ok())
         .unwrap_or(GRPC_DEFAULT_PORT)
 });
+
+pub const MEMTABLE_SIZE_SOFT_LIMIT_RATE: f64 = 0.3; // 시스템 메모리의 30%
+pub const MEMTABLE_SIZE_HARD_LIMIT_RATE: f64 = 0.5; // 시스템 메모리의 50%

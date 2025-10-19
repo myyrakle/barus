@@ -5,6 +5,7 @@ pub mod grpc;
 pub mod http;
 pub mod lock;
 pub mod memtable;
+pub mod system;
 pub mod wal;
 
 use db::DBEngine;
@@ -19,8 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Initializing DB Engine...");
 
     // DB Engine 초기화 (한 번만)
-    let mut db_engine = DBEngine::new("data".into());
-    db_engine.initialize().await?;
+    let db_engine = DBEngine::initialize("data".into()).await?;
 
     // Arc로 감싸서 여러 서버가 공유
     let shared_db = Arc::new(db_engine);
