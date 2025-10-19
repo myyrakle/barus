@@ -1,0 +1,19 @@
+services:
+  barus:
+    build:
+      context: .                   
+      dockerfile: Dockerfile      
+    container_name: barus-server  
+    environment:
+      BARUS_HTTP_PORT: "53000"
+      BARUS_GRPC_PORT: "53001"
+    
+    ports:
+      - "53000:53000"                
+      - "53001:53001"             
+    
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 8096M
