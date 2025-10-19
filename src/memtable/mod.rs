@@ -30,21 +30,8 @@ impl MemtableManager {
             .memtable_current_size
             .fetch_add(bytes as u64, std::sync::atomic::Ordering::SeqCst);
 
-        if key == "f1c44c34-d646-4740-9307-7d9e7719e295" {
-            println!(
-                "memtable_current_size after adding key {}: {}",
-                key,
-                currnet_size + (bytes as u64)
-            );
-        }
-
         // blocking write if limit exceeded
         if currnet_size + (bytes as u64) > MEMTABLE_SIZE_HARD_LIMIT as u64 {
-            println!(
-                "Memtable size limit exceeded ({} bytes). Blocking write...",
-                MEMTABLE_SIZE_HARD_LIMIT
-            );
-
             loop {
                 let current_size = self
                     .memtable_current_size
@@ -81,12 +68,6 @@ impl MemtableManager {
     }
 
     pub async fn get(&self, table: &str, key: &str) -> errors::Result<MemtableGetResult> {
-        println!(
-            "current size of memtable: {}",
-            self.memtable_current_size
-                .load(std::sync::atomic::Ordering::SeqCst)
-        );
-
         let memtable_map = self.memtable_map.read().await;
 
         match memtable_map.get(table) {
