@@ -1,5 +1,7 @@
 use crate::errors;
 
+pub mod record;
+
 #[derive(Debug, Clone)]
 pub struct DiskTableManager {
     #[allow(dead_code)]
