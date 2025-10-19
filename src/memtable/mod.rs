@@ -80,7 +80,7 @@ impl MemtableManager {
         Ok(())
     }
 
-    pub async fn get(&self, table: &str, key: &str) -> errors::Result<String> {
+    pub async fn get(&self, table: &str, key: &str) -> errors::Result<MemtableGetResult> {
         println!(
             "current size of memtable: {}",
             self.memtable_current_size
@@ -92,10 +92,8 @@ impl MemtableManager {
         match memtable_map.get(table) {
             Some(memtable) => {
                 let memtable_lock = memtable.lock().await;
-                match memtable_lock.get(key) {
-                    Some(value) => Ok(value.clone()),
-                    None => Err(Errors::ValueNotFound(format!("Key not found: {}", key))),
-                }
+
+                Ok(memtable_lock.get(key))
             }
             None => Err(Errors::TableNotFound(format!("Table not found: {}", table))),
         }
@@ -132,6 +130,12 @@ pub struct HashMemtable {
 
 pub const MEMTABLE_CAPACITY: usize = 100000;
 
+pub enum MemtableGetResult {
+    Found(String),
+    NotFound,
+    Deleted,
+}
+
 impl HashMemtable {
     pub fn new() -> Self {
         Self {
@@ -143,8 +147,14 @@ impl HashMemtable {
         self.table.insert(key, MemtableEntry { value: Some(value) });
     }
 
-    pub fn get(&self, key: &str) -> Option<&String> {
-        self.table.get(key).and_then(|entry| entry.value.as_ref())
+    pub fn get(&self, key: &str) -> MemtableGetResult {
+        match self.table.get(key) {
+            Some(entry) => match &entry.value {
+                Some(value) => MemtableGetResult::Found(value.clone()),
+                None => MemtableGetResult::Deleted,
+            },
+            None => MemtableGetResult::NotFound,
+        }
     }
 
     pub fn delete(&mut self, key: &str) -> Option<()> {

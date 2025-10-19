@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     errors,
-    memtable::MemtableManager,
+    memtable::{MemtableGetResult, MemtableManager},
     wal::{
         self, WALManager,
         encode::WalRecordBincodeCodec,
@@ -63,8 +63,29 @@ impl DBEngine {
         Ok(())
     }
 
-    pub async fn get(&self, _table: &str, _key: &str) -> errors::Result<GetResponse> {
-        unimplemented!()
+    pub async fn get(&self, table: &str, key: &str) -> errors::Result<GetResponse> {
+        // 1. Try to get from Memtable
+        let memtable_result = self.memtable_manager.get(table, key).await?;
+
+        match memtable_result {
+            MemtableGetResult::Deleted => {
+                return Err(errors::Errors::ValueNotFound(format!(
+                    "Key not found (deleted): {}",
+                    key
+                )));
+            }
+            MemtableGetResult::Found(value) => {
+                return Ok(GetResponse {
+                    value: value.into_bytes(),
+                });
+            }
+            MemtableGetResult::NotFound => {}
+        }
+
+        // 2. Try to get from disk area (not implemented yet)
+        let response = GetResponse { value: vec![] };
+
+        Ok(response)
     }
 
     pub async fn put(&self, table: String, key: String, value: String) -> errors::Result<()> {
