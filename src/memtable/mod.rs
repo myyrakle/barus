@@ -16,6 +16,12 @@ pub struct MemtableManager {
     memtable_current_size: Arc<AtomicU64>,
 }
 
+impl Default for MemtableManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemtableManager {
     pub fn new() -> Self {
         Self {
@@ -115,6 +121,12 @@ pub enum MemtableGetResult {
     Found(String),
     NotFound,
     Deleted,
+}
+
+impl Default for HashMemtable {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl HashMemtable {

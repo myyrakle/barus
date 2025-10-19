@@ -193,15 +193,14 @@ impl WALManager {
 
         // 2. Check if need to new segment file.
         // If current segment file size + new record size > WAL_SEGMENT_SIZE, create new segment file
-        let current_segment_size = self.get_current_segment_file_size()?;
+        let current_segment_size = self.state.last_segment_file_offset;
 
         if current_segment_size + record.size() > WAL_SEGMENT_SIZE {
             *write_state = self.new_segment_file().await?;
         }
 
         // 3. Serialize the record and write (zero copy)
-        let payload_start_offset =
-            self.state.last_segment_file_offset + WAL_RECORD_HEADER_SIZE as usize;
+        let payload_start_offset = self.state.last_segment_file_offset + WAL_RECORD_HEADER_SIZE;
 
         let new_record_id = self.state.last_record_id + 1;
         record.record_id = new_record_id;
@@ -212,8 +211,7 @@ impl WALManager {
 
         // 4. Set the header value
         let header_start_offset = self.state.last_segment_file_offset;
-        let header_end_offset =
-            self.state.last_segment_file_offset + WAL_RECORD_HEADER_SIZE as usize;
+        let header_end_offset = self.state.last_segment_file_offset + WAL_RECORD_HEADER_SIZE;
 
         let header = (payload_size as u32).to_be_bytes();
         write_state.mmap[header_start_offset..header_end_offset].copy_from_slice(&header);
@@ -311,15 +309,6 @@ impl WALManager {
     fn get_current_segment_file_name(&self) -> errors::Result<String> {
         let segment_id_str: String = (&self.state.last_segment_id).into();
         Ok(segment_id_str)
-    }
-
-    fn get_current_segment_file_size(&self) -> errors::Result<usize> {
-        self.state.last_segment_file_offset.try_into().map_err(|e| {
-            errors::Errors::WalSegmentFileOpenError(format!(
-                "Failed to get current segment file size: {}",
-                e
-            ))
-        })
     }
 
     async fn new_segment_file(&mut self) -> errors::Result<WALSegmentWriteHandle> {
