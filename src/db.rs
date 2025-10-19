@@ -85,7 +85,7 @@ impl DBEngine {
 
         // 2. Memtable update
         {
-            self.memtable_manager.put(&table, key, value).await?;
+            self.memtable_manager.put(table, key, value).await?;
         }
 
         // unimplemented!()
@@ -106,8 +106,14 @@ impl DBEngine {
             },
         };
 
+        // 1. WAL write
         {
             self.wal_manager.lock().await.append(wal_record).await?;
+        }
+
+        // 2. Memtable update
+        {
+            self.memtable_manager.delete(table, key).await?;
         }
 
         // TODO: 메인 테이블 데이터 및 Tree 인덱스 업데이트

@@ -49,6 +49,8 @@ async fn get_value(
             .unwrap();
     };
 
+    println!("table requested: {}, key requested: {}", table, key);
+
     let result = db.get(&table, key).await;
 
     match result {
