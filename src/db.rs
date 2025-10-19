@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 use crate::{
     errors,
     memtable::{MemtableGetResult, MemtableManager},
-    system::get_system_info,
+    system::{SystemInfo, get_system_info},
     wal::{
         self, WALManager,
         encode::WalRecordBincodeCodec,
@@ -15,6 +15,9 @@ use crate::{
 
 #[derive(Debug, Clone)] // Clone 추가
 pub struct DBEngine {
+    #[allow(dead_code)]
+    system_info: SystemInfo,
+    #[allow(dead_code)]
     base_path: PathBuf,
     wal_manager: Arc<Mutex<WALManager>>,
     memtable_manager: Arc<MemtableManager>,
@@ -25,24 +28,13 @@ pub struct GetResponse {
 }
 
 impl DBEngine {
-    pub fn new(base_path: PathBuf) -> Self {
-        Self {
-            base_path: base_path.clone(),
-            wal_manager: Arc::new(Mutex::new(WALManager::new(
-                Box::new(WalRecordBincodeCodec {}),
-                base_path,
-            ))),
-            memtable_manager: Arc::new(MemtableManager::new()),
-        }
-    }
-
-    pub async fn initialize(&mut self) -> errors::Result<()> {
+    pub async fn initialize(base_path: PathBuf) -> errors::Result<Self> {
         // 1. Load System Info
         let system_info = get_system_info();
 
         // 2. Initialize the database directory
         // Create DB directory if not exists
-        std::fs::create_dir_all(&self.base_path).or_else(|e| {
+        std::fs::create_dir_all(&base_path).or_else(|e| {
             if e.kind() == std::io::ErrorKind::AlreadyExists {
                 Ok(())
             } else {
@@ -56,16 +48,34 @@ impl DBEngine {
         // 3. TODO: Global Setting Init
 
         // 4. Initialize and load the WAL manager
-        {
-            let mut wal = self.wal_manager.lock().await;
-            wal.initialize().await?;
-            wal.load().await?;
-            wal.start_background()?;
-        }
+        let wal_manager = {
+            let mut wal_manager =
+                WALManager::new(Box::new(WalRecordBincodeCodec {}), base_path.clone());
 
-        // 5. TODO: Basic Table Setting Init
+            wal_manager.initialize().await?;
+            wal_manager.load().await?;
+            wal_manager.start_background()?;
 
-        Ok(())
+            Arc::new(Mutex::new(wal_manager))
+        };
+
+        // 5. Memtable Load
+        let memtable_manager = {
+            let memtable_manager = Arc::new(MemtableManager::new(&system_info));
+
+            memtable_manager
+        };
+
+        // 6. TODO: Basic Table Setting Init
+
+        let manager = Self {
+            system_info,
+            base_path: base_path.clone(),
+            wal_manager,
+            memtable_manager,
+        };
+
+        Ok(manager)
     }
 
     pub async fn get(&self, table: &str, key: &str) -> errors::Result<GetResponse> {

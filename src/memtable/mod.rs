@@ -8,28 +8,35 @@ use std::{
 
 use tokio::sync::{Mutex, RwLock};
 
-use crate::errors::{self, Errors};
-
-pub const MEMTABLE_SIZE_SOFT_LIMIT: usize = 512 * 1024 * 1024; // 512MB
-pub const MEMTABLE_SIZE_HARD_LIMIT: usize = 1024 * 1024 * 1024; // 1024MB
+use crate::{
+    errors::{self, Errors},
+    system::SystemInfo,
+};
 
 #[derive(Debug)]
 pub struct MemtableManager {
     memtable_map: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
     memtable_current_size: Arc<AtomicU64>,
-}
-
-impl Default for MemtableManager {
-    fn default() -> Self {
-        Self::new()
-    }
+    #[allow(dead_code)]
+    memtable_size_soft_limit: usize,
+    memtable_size_hard_limit: usize,
 }
 
 impl MemtableManager {
-    pub fn new() -> Self {
+    pub fn new(system_info: &SystemInfo) -> Self {
+        let total_memory = system_info.total_memory;
+
+        let memtable_size_soft_limit =
+            (total_memory as f64 * crate::config::MEMTABLE_SIZE_SOFT_LIMIT_RATE) as usize;
+
+        let memtable_size_hard_limit =
+            (total_memory as f64 * crate::config::MEMTABLE_SIZE_HARD_LIMIT_RATE) as usize;
+
         Self {
             memtable_map: Arc::new(RwLock::new(HashMap::new())),
             memtable_current_size: Arc::new(AtomicU64::new(0)),
+            memtable_size_soft_limit,
+            memtable_size_hard_limit,
         }
     }
 
@@ -39,7 +46,7 @@ impl MemtableManager {
         // 1. blocking until enough space is available
         loop {
             let current = self.memtable_current_size.load(Ordering::SeqCst);
-            if current + (bytes as u64) <= MEMTABLE_SIZE_HARD_LIMIT as u64 {
+            if current + (bytes as u64) <= self.memtable_size_hard_limit as u64 {
                 if self
                     .memtable_current_size
                     .compare_exchange(
