@@ -62,11 +62,7 @@ impl DBEngine {
         };
 
         // 5. Memtable Load
-        let memtable_manager = {
-            let memtable_manager = Arc::new(MemtableManager::new(&system_info));
-
-            memtable_manager
-        };
+        let memtable_manager = { Arc::new(MemtableManager::new(&system_info)) };
 
         // TODO: Basic Table Setting Init
 
@@ -112,15 +108,11 @@ impl DBEngine {
             let disktable_result = self.disktable_manager.get(table, key).await?;
 
             match disktable_result {
-                DisktableGetResult::Found(value) => {
-                    return Ok(GetResponse { value });
-                }
-                _ => {
-                    return Err(errors::Errors::ValueNotFound(format!(
-                        "Key not found: {}",
-                        key
-                    )));
-                }
+                DisktableGetResult::Found(value) => Ok(GetResponse { value }),
+                _ => Err(errors::Errors::ValueNotFound(format!(
+                    "Key not found: {}",
+                    key
+                ))),
             }
         }
     }
