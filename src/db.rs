@@ -74,6 +74,8 @@ impl DBEngine {
         let disktable_manager = {
             let disktable_manager = Arc::new(DiskTableManager::new(base_path.clone()));
 
+            disktable_manager.initialize().await?;
+
             disktable_manager
         };
 

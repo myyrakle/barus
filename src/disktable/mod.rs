@@ -1,6 +1,7 @@
-use crate::errors;
+use crate::{config::TABLES_DIRECTORY, errors};
 
 pub mod record;
+pub mod table;
 
 #[derive(Debug, Clone)]
 pub struct DiskTableManager {
@@ -11,6 +12,23 @@ pub struct DiskTableManager {
 impl DiskTableManager {
     pub fn new(base_path: std::path::PathBuf) -> Self {
         Self { base_path }
+    }
+
+    pub async fn initialize(&self) -> errors::Result<()> {
+        let tables_path = self.base_path.join(TABLES_DIRECTORY);
+
+        if !tables_path.exists() {
+            tokio::fs::create_dir_all(self.base_path.join(TABLES_DIRECTORY))
+                .await
+                .map_err(|e| {
+                    errors::Errors::TableCreationError(format!(
+                        "Failed to create tables directory: {}",
+                        e
+                    ))
+                })?;
+        }
+
+        Ok(())
     }
 
     pub async fn get(&self, _table: &str, _key: &str) -> errors::Result<DisktableGetResult> {
