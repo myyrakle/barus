@@ -14,6 +14,12 @@ pub enum Errors {
     ValueNotFound(String),
     TableAlreadyExists(String),
     TableCreationError(String),
+    TableNameIsEmpty,
+    TableNameTooLong,
+    TableNameIsInvalid(String),
+    KeyIsEmpty,
+    KeySizeTooLarge,
+    ValueSizeTooLarge,
 }
 
 impl std::fmt::Display for Errors {
@@ -35,6 +41,12 @@ impl std::fmt::Display for Errors {
             Errors::ValueNotFound(msg) => write!(f, "Value Not Found: {}", msg),
             Errors::TableAlreadyExists(msg) => write!(f, "Table Already Exists: {}", msg),
             Errors::TableCreationError(msg) => write!(f, "Table Creation Error: {}", msg),
+            Errors::TableNameIsEmpty => write!(f, "Table Name Is Empty"),
+            Errors::TableNameIsInvalid(msg) => write!(f, "Table Name Is Invalid: {}", msg),
+            Errors::TableNameTooLong => write!(f, "Table Name Too Long"),
+            Errors::KeySizeTooLarge => write!(f, "Key Size Too Large"),
+            Errors::KeyIsEmpty => write!(f, "Key Is Empty"),
+            Errors::ValueSizeTooLarge => write!(f, "Value Size Too Large"),
         }
     }
 }

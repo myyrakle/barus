@@ -7,6 +7,7 @@ use crate::{
     errors,
     memtable::{MemtableGetResult, MemtableManager},
     system::{SystemInfo, get_system_info},
+    validate::{validate_key, validate_table_name, validate_value},
     wal::{
         self, WALManager,
         encode::WalRecordBincodeCodec,
@@ -87,7 +88,11 @@ impl DBEngine {
     }
 
     pub async fn get(&self, table: &str, key: &str) -> errors::Result<GetResponse> {
-        // 1. Try to get from Memtable
+        // 1. Validation
+        validate_table_name(&table)?;
+        validate_key(&key)?;
+
+        // 2. Try to get from Memtable
         let memtable_result = self.memtable_manager.get(table, key).await?;
 
         match memtable_result {
@@ -103,7 +108,7 @@ impl DBEngine {
             MemtableGetResult::NotFound => {}
         }
 
-        // 2. Try to get from disk area (not implemented yet)
+        // 3. Try to get from disk area (not implemented yet)
         {
             let disktable_result = self.disktable_manager.get(table, key).await?;
 
@@ -118,6 +123,11 @@ impl DBEngine {
     }
 
     pub async fn put(&self, table: String, key: String, value: String) -> errors::Result<()> {
+        // 1. Validation
+        validate_table_name(&table)?;
+        validate_key(&key)?;
+        validate_value(&value)?;
+
         let wal_record = WalRecord {
             record_id: 0,
             record_type: wal::record::RecordType::Put,
@@ -128,12 +138,12 @@ impl DBEngine {
             },
         };
 
-        // 1. WAL write
+        // 2. WAL write
         {
             self.wal_manager.lock().await.append(wal_record).await?;
         }
 
-        // 2. Memtable update
+        // 3. Memtable update
         {
             self.memtable_manager.put(table, key, value).await?;
         }
@@ -142,6 +152,10 @@ impl DBEngine {
     }
 
     pub async fn delete(&self, table: String, key: String) -> errors::Result<()> {
+        // 1 Validation
+        validate_table_name(&table)?;
+        validate_key(&key)?;
+
         let wal_record = WalRecord {
             record_id: 0,
             record_type: wal::record::RecordType::Delete,
@@ -152,12 +166,12 @@ impl DBEngine {
             },
         };
 
-        // 1. WAL write
+        // 2. WAL write
         {
             self.wal_manager.lock().await.append(wal_record).await?;
         }
 
-        // 2. Memtable update
+        // 3. Memtable update
         {
             self.memtable_manager.delete(table, key).await?;
         }
