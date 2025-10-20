@@ -1,17 +1,26 @@
 use crate::{config::TABLES_DIRECTORY, errors};
 
-pub mod record;
+pub mod index;
+pub mod segment;
 pub mod table;
 
 #[derive(Debug, Clone)]
 pub struct DiskTableManager {
     #[allow(dead_code)]
     base_path: std::path::PathBuf,
+    #[allow(dead_code)]
+    index_manager: index::IndexManager,
+    #[allow(dead_code)]
+    segment_manager: segment::TableSegmentManager,
 }
 
 impl DiskTableManager {
     pub fn new(base_path: std::path::PathBuf) -> Self {
-        Self { base_path }
+        Self {
+            base_path,
+            index_manager: index::IndexManager::new(),
+            segment_manager: segment::TableSegmentManager::new(),
+        }
     }
 
     pub async fn initialize(&self) -> errors::Result<()> {

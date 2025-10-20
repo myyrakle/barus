@@ -1,17 +1,17 @@
 #[derive(Debug, Clone, bincode::Encode, bincode::Decode)]
-pub struct DisktableRecord {
-    pub record_type: DisktableRecordStatus,
-    pub data: DisktablePayload,
+pub struct TableSegmentRecord {
+    pub record_type: TableSegmentRecordStatus,
+    pub data: TableSegmentPayload,
 }
 
 #[derive(Debug, Clone, bincode::Encode, bincode::Decode)]
-pub enum DisktableRecordStatus {
+pub enum TableSegmentRecordStatus {
     Alive,
     Deleted,
 }
 
 #[derive(Debug, Clone, bincode::Encode, bincode::Decode)]
-pub struct DisktablePayload {
+pub struct TableSegmentPayload {
     pub key: String,
     pub value: String,
 }
