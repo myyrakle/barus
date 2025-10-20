@@ -89,8 +89,8 @@ impl DBEngine {
 
     pub async fn get(&self, table: &str, key: &str) -> errors::Result<GetResponse> {
         // 1. Validation
-        validate_table_name(&table)?;
-        validate_key(&key)?;
+        validate_table_name(table)?;
+        validate_key(key)?;
 
         // 2. Try to get from Memtable
         let memtable_result = self.memtable_manager.get(table, key).await?;
