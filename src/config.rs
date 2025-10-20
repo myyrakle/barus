@@ -21,6 +21,8 @@ pub const WAL_DIRECTORY: &str = "wal";
 pub const WAL_STATE_PATH: &str = "wal_state.json";
 pub const WAL_RECORD_HEADER_SIZE: usize = 4; // 4 bytes for record length
 
+pub const TABLES_DIRECTORY: &str = "tables";
+
 pub const MEMTABLE_SIZE_SOFT_LIMIT_RATE: f64 = 0.3; // 시스템 메모리의 30%
 pub const MEMTABLE_SIZE_HARD_LIMIT_RATE: f64 = 0.5; // 시스템 메모리의 50%
 
