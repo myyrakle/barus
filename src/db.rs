@@ -3,9 +3,11 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::{
+    disktable::{DiskTableManager, DisktableGetResult},
     errors,
     memtable::{MemtableGetResult, MemtableManager},
     system::{SystemInfo, get_system_info},
+    validate::{validate_key, validate_table_name, validate_value},
     wal::{
         self, WALManager,
         encode::WalRecordBincodeCodec,
@@ -21,10 +23,11 @@ pub struct DBEngine {
     base_path: PathBuf,
     wal_manager: Arc<Mutex<WALManager>>,
     memtable_manager: Arc<MemtableManager>,
+    disktable_manager: Arc<DiskTableManager>,
 }
 
 pub struct GetResponse {
-    pub value: Vec<u8>,
+    pub value: String,
 }
 
 impl DBEngine {
@@ -60,26 +63,36 @@ impl DBEngine {
         };
 
         // 5. Memtable Load
-        let memtable_manager = {
-            let memtable_manager = Arc::new(MemtableManager::new(&system_info));
+        let memtable_manager = { Arc::new(MemtableManager::new(&system_info)) };
 
-            memtable_manager
+        // TODO: Basic Table Setting Init
+
+        // 6. Disktable Load
+        let disktable_manager = {
+            let disktable_manager = Arc::new(DiskTableManager::new(base_path.clone()));
+
+            disktable_manager.initialize().await?;
+
+            disktable_manager
         };
-
-        // 6. TODO: Basic Table Setting Init
 
         let manager = Self {
             system_info,
             base_path: base_path.clone(),
             wal_manager,
             memtable_manager,
+            disktable_manager,
         };
 
         Ok(manager)
     }
 
     pub async fn get(&self, table: &str, key: &str) -> errors::Result<GetResponse> {
-        // 1. Try to get from Memtable
+        // 1. Validation
+        validate_table_name(table)?;
+        validate_key(key)?;
+
+        // 2. Try to get from Memtable
         let memtable_result = self.memtable_manager.get(table, key).await?;
 
         match memtable_result {
@@ -90,20 +103,31 @@ impl DBEngine {
                 )));
             }
             MemtableGetResult::Found(value) => {
-                return Ok(GetResponse {
-                    value: value.into_bytes(),
-                });
+                return Ok(GetResponse { value });
             }
             MemtableGetResult::NotFound => {}
         }
 
-        // 2. Try to get from disk area (not implemented yet)
-        let response = GetResponse { value: vec![] };
+        // 3. Try to get from disk area (not implemented yet)
+        {
+            let disktable_result = self.disktable_manager.get(table, key).await?;
 
-        Ok(response)
+            match disktable_result {
+                DisktableGetResult::Found(value) => Ok(GetResponse { value }),
+                _ => Err(errors::Errors::ValueNotFound(format!(
+                    "Key not found: {}",
+                    key
+                ))),
+            }
+        }
     }
 
     pub async fn put(&self, table: String, key: String, value: String) -> errors::Result<()> {
+        // 1. Validation
+        validate_table_name(&table)?;
+        validate_key(&key)?;
+        validate_value(&value)?;
+
         let wal_record = WalRecord {
             record_id: 0,
             record_type: wal::record::RecordType::Put,
@@ -114,24 +138,24 @@ impl DBEngine {
             },
         };
 
-        // 1. WAL write
+        // 2. WAL write
         {
             self.wal_manager.lock().await.append(wal_record).await?;
         }
 
-        // 2. Memtable update
+        // 3. Memtable update
         {
             self.memtable_manager.put(table, key, value).await?;
         }
-
-        // unimplemented!()
-
-        // TODO: 메인 테이블 데이터 및 Tree 인덱스 업데이트
 
         Ok(())
     }
 
     pub async fn delete(&self, table: String, key: String) -> errors::Result<()> {
+        // 1 Validation
+        validate_table_name(&table)?;
+        validate_key(&key)?;
+
         let wal_record = WalRecord {
             record_id: 0,
             record_type: wal::record::RecordType::Delete,
@@ -142,17 +166,15 @@ impl DBEngine {
             },
         };
 
-        // 1. WAL write
+        // 2. WAL write
         {
             self.wal_manager.lock().await.append(wal_record).await?;
         }
 
-        // 2. Memtable update
+        // 3. Memtable update
         {
             self.memtable_manager.delete(table, key).await?;
         }
-
-        // TODO: 메인 테이블 데이터 및 Tree 인덱스 업데이트
 
         Ok(())
     }

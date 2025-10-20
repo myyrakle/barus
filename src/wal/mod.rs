@@ -2,6 +2,7 @@ use std::{fmt::Debug, path::PathBuf, sync::Arc, vec};
 use tokio::{fs::OpenOptions, sync::Mutex};
 
 use crate::{
+    config::{WAL_DIRECTORY, WAL_RECORD_HEADER_SIZE, WAL_SEGMENT_SIZE, WAL_STATE_PATH},
     errors,
     wal::{
         encode::WalRecordCodec,
@@ -16,13 +17,8 @@ pub mod record;
 pub mod segment;
 pub mod state;
 
-pub const WAL_SEGMENT_SIZE: usize = 1024 * 1024 * 32; // 32MB
 #[cfg(not(target_os = "linux"))]
 pub static WAL_ZERO_CHUNK: [u8; WAL_SEGMENT_SIZE] = [0u8; WAL_SEGMENT_SIZE];
-
-pub const WAL_DIRECTORY: &str = "wal";
-pub const WAL_STATE_PATH: &str = "wal_state.json";
-pub const WAL_RECORD_HEADER_SIZE: usize = 4; // 4 bytes for record length
 
 pub struct WALManager {
     codec: Box<dyn WalRecordCodec + Send + Sync>,

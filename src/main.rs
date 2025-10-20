@@ -1,11 +1,13 @@
 pub mod config;
 pub mod db;
+pub mod disktable;
 pub mod errors;
 pub mod grpc;
 pub mod http;
 pub mod lock;
 pub mod memtable;
 pub mod system;
+pub mod validate;
 pub mod wal;
 
 use db::DBEngine;

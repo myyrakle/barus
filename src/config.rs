@@ -16,5 +16,20 @@ pub static GRPC_PORT: LazyLock<u16> = LazyLock::new(|| {
         .unwrap_or(GRPC_DEFAULT_PORT)
 });
 
+pub const WAL_SEGMENT_SIZE: usize = 1024 * 1024 * 32; // 32MB
+pub const WAL_DIRECTORY: &str = "wal";
+pub const WAL_STATE_PATH: &str = "wal_state.json";
+pub const WAL_RECORD_HEADER_SIZE: usize = 4; // 4 bytes for record length
+
+pub const TABLES_DIRECTORY: &str = "tables";
+
 pub const MEMTABLE_SIZE_SOFT_LIMIT_RATE: f64 = 0.3; // 시스템 메모리의 30%
 pub const MEMTABLE_SIZE_HARD_LIMIT_RATE: f64 = 0.5; // 시스템 메모리의 50%
+
+pub const DISKTABLE_SEGMENT_SIZE: usize = 1024 * 1024 * 1024; // 1GB
+pub const DISKTABLE_PAGE_SIZE: usize = 1024 * 1024; // 1MB
+pub const DISKTABLE_PAGE_COUNT_PER_SEGMENT: usize = DISKTABLE_SEGMENT_SIZE / DISKTABLE_PAGE_SIZE; // 1024 pages
+
+pub const KEY_BYTES_MAX_SIZE: usize = 1024; // 1KB
+pub const VALUE_BYTES_MAX_SIZE: usize = 512 * 1024; // 512KB
+pub const TABLE_NAME_MAX_SIZE: usize = 255; // 255 bytes
