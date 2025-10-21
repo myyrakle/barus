@@ -14,6 +14,7 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
 
     let app = Router::new()
         .route("/", get(root))
+        .route("/status", get(get_db_status))
         .route("/tables", get(list_tables))
         .route("/tables/{table}", get(get_table))
         .route("/tables/{table}", post(create_table))
@@ -34,6 +35,35 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
 
 async fn root() -> &'static str {
     "OK"
+}
+
+#[derive(serde::Serialize)]
+pub struct DBStatusResponse {
+    pub table_count: usize,
+    pub memtable_size: u64,
+}
+
+async fn get_db_status(Extension(db): Extension<Arc<DBEngine>>) -> impl IntoResponse {
+    let status = db.get_db_status().await;
+
+    match status {
+        Ok(status) => {
+            let response = DBStatusResponse {
+                table_count: status.table_count,
+                memtable_size: status.memtable_size,
+            };
+
+            Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(serde_json::to_string(&response).unwrap())
+                .unwrap()
+        }
+        Err(err) => {
+            let error_message = format!("Error getting database status: {:?}", err);
+            Response::builder().status(500).body(error_message).unwrap()
+        }
+    }
 }
 
 #[derive(serde::Serialize)]

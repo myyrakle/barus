@@ -12,9 +12,9 @@ pub mod barus {
 use barus::barus_service_server::{BarusService, BarusServiceServer};
 use barus::{
     CreateTableRequest, CreateTableResponse, DeleteRequest, DeleteResponse, DropTableRequest,
-    DropTableResponse, FlushWalRequest, FlushWalResponse, GetRequest, GetResponse, GetTableRequest,
-    GetTableResponse, HealthRequest, HealthResponse, ListTablesRequest, ListTablesResponse,
-    PutRequest, PutResponse, TableInfo,
+    DropTableResponse, FlushWalRequest, FlushWalResponse, GetDbStatusRequest, GetDbStatusResponse,
+    GetRequest, GetResponse, GetTableRequest, GetTableResponse, HealthRequest, HealthResponse,
+    ListTablesRequest, ListTablesResponse, PutRequest, PutResponse, TableInfo,
 };
 
 pub struct BarusGrpcService {
@@ -194,6 +194,22 @@ impl BarusService for BarusGrpcService {
                 message: "WAL flushed successfully".to_string(),
             })),
             Err(e) => Err(Status::internal(format!("Failed to flush WAL: {:?}", e))),
+        }
+    }
+
+    async fn get_db_status(
+        &self,
+        _request: Request<GetDbStatusRequest>,
+    ) -> Result<Response<GetDbStatusResponse>, Status> {
+        match self.db.get_db_status().await {
+            Ok(status) => Ok(Response::new(GetDbStatusResponse {
+                memtable_size: status.memtable_size,
+                table_count: status.table_count as u64,
+            })),
+            Err(e) => Err(Status::internal(format!(
+                "Failed to get DB status: {:?}",
+                e
+            ))),
         }
     }
 }

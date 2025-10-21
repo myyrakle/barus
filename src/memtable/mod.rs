@@ -40,6 +40,12 @@ impl MemtableManager {
         }
     }
 
+    pub fn get_memtable_current_size(&self) -> errors::Result<u64> {
+        let memtable_current_size = self.memtable_current_size.load(Ordering::Relaxed);
+
+        Ok(memtable_current_size)
+    }
+
     pub async fn load_table_list(&self, table_list: Vec<String>) -> errors::Result<()> {
         for table in table_list {
             self.create_table(&table).await?;

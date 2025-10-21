@@ -38,6 +38,11 @@ pub struct ListTablesResponseItem {
     pub table_name: String,
 }
 
+pub struct DBStatusResponse {
+    pub memtable_size: u64,
+    pub table_count: usize,
+}
+
 impl DBEngine {
     /// Initializes the DBEngine with the given base path.
     pub async fn initialize(base_path: PathBuf) -> errors::Result<Self> {
@@ -100,6 +105,18 @@ impl DBEngine {
         };
 
         Ok(manager)
+    }
+
+    pub async fn get_db_status(&self) -> errors::Result<DBStatusResponse> {
+        let table_count = self.disktable_manager.list_tables().await?.len();
+        let memtable_size = self.memtable_manager.get_memtable_current_size()?;
+
+        let status = DBStatusResponse {
+            table_count,
+            memtable_size,
+        };
+
+        Ok(status)
     }
 
     /// List all table names
