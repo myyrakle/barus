@@ -14,6 +14,7 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
 
     let app = Router::new()
         .route("/", get(root))
+        .route("/tables/{table}", post(create_table))
         .route("/tables/{table}/value", get(get_value))
         .route("/tables/{table}/value", put(put_value))
         .route("/tables/{table}/value", delete(delete_value))
@@ -30,6 +31,26 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
 
 async fn root() -> &'static str {
     "OK"
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct CreateTableRequest {}
+
+async fn create_table(
+    Extension(db): Extension<Arc<DBEngine>>,
+    Path(table): Path<String>,
+    Json(_req): Json<CreateTableRequest>,
+) -> impl IntoResponse {
+    match db.create_table(&table).await {
+        Ok(_) => Response::builder()
+            .status(200)
+            .body(format!("Table '{}' created successfully", table).into())
+            .unwrap(),
+        Err(e) => {
+            let error_message = format!("Error creating table '{}': {:?}", table, e);
+            Response::builder().status(500).body(error_message).unwrap()
+        }
+    }
 }
 
 #[derive(serde::Serialize)]
