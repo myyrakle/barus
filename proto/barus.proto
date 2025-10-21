@@ -15,6 +15,9 @@ service BarusService {
   
   // Health check
   rpc Health(HealthRequest) returns (HealthResponse);
+  
+  // Flush WAL to disk
+  rpc FlushWAL(FlushWALRequest) returns (FlushWALResponse);
 }
 
 message GetRequest {
@@ -50,4 +53,10 @@ message HealthRequest {}
 
 message HealthResponse {
   string status = 1;
+}
+
+message FlushWALRequest {}
+
+message FlushWALResponse {
+  string message = 1;
 }

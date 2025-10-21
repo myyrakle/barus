@@ -1,31 +1,31 @@
 use bincode::config::{Configuration, Fixint, LittleEndian, NoLimit};
 
-use crate::{errors, wal::record::WalRecord};
+use crate::{errors, wal::record::WALRecord};
 
-pub trait WalRecordCodec {
-    fn encode(&self, record: &WalRecord, buf: &mut [u8]) -> errors::Result<usize>;
-    fn decode(&self, data: &[u8]) -> errors::Result<WalRecord>;
+pub trait WALRecordCodec {
+    fn encode(&self, record: &WALRecord, buf: &mut [u8]) -> errors::Result<usize>;
+    fn decode(&self, data: &[u8]) -> errors::Result<WALRecord>;
 }
 
-pub struct WalRecordBincodeCodec;
+pub struct WALRecordBincodeCodec;
 
-impl WalRecordBincodeCodec {
+impl WALRecordBincodeCodec {
     const CONFIG: Configuration<LittleEndian, Fixint, NoLimit> = bincode::config::standard()
         .with_fixed_int_encoding()
         .with_little_endian()
         .with_no_limit();
 }
 
-impl WalRecordCodec for WalRecordBincodeCodec {
-    fn encode(&self, record: &WalRecord, buf: &mut [u8]) -> errors::Result<usize> {
+impl WALRecordCodec for WALRecordBincodeCodec {
+    fn encode(&self, record: &WALRecord, buf: &mut [u8]) -> errors::Result<usize> {
         bincode::encode_into_slice(record, buf, Self::CONFIG)
-            .map_err(|e| errors::Errors::WalRecordEncodeError(e.to_string()))
+            .map_err(|e| errors::Errors::WALRecordEncodeError(e.to_string()))
     }
 
-    fn decode(&self, data: &[u8]) -> errors::Result<WalRecord> {
+    fn decode(&self, data: &[u8]) -> errors::Result<WALRecord> {
         // bincode 2.x uses decode_from_slice with config
-        let (decoded, _len): (WalRecord, usize) = bincode::decode_from_slice(data, Self::CONFIG)
-            .map_err(|e| errors::Errors::WalRecordDecodeError(e.to_string()))?;
+        let (decoded, _len): (WALRecord, usize) = bincode::decode_from_slice(data, Self::CONFIG)
+            .map_err(|e| errors::Errors::WALRecordDecodeError(e.to_string()))?;
         Ok(decoded)
     }
 }

@@ -10,8 +10,8 @@ use crate::{
     validate::{validate_key, validate_table_name, validate_value},
     wal::{
         self, WALManager,
-        encode::WalRecordBincodeCodec,
-        record::{WalPayload, WalRecord},
+        encode::WALRecordBincodeCodec,
+        record::{WALPayload, WALRecord},
     },
 };
 
@@ -31,6 +31,7 @@ pub struct GetResponse {
 }
 
 impl DBEngine {
+    /// Initializes the DBEngine with the given base path.
     pub async fn initialize(base_path: PathBuf) -> errors::Result<Self> {
         // 1. Load System Info
         let system_info = get_system_info();
@@ -41,7 +42,7 @@ impl DBEngine {
             if e.kind() == std::io::ErrorKind::AlreadyExists {
                 Ok(())
             } else {
-                Err(errors::Errors::WalInitializationError(format!(
+                Err(errors::Errors::WALInitializationError(format!(
                     "Failed to create database directory: {}",
                     e
                 )))
@@ -53,7 +54,7 @@ impl DBEngine {
         // 4. Initialize and load the WAL manager
         let wal_manager = {
             let mut wal_manager =
-                WALManager::new(Box::new(WalRecordBincodeCodec {}), base_path.clone());
+                WALManager::new(Box::new(WALRecordBincodeCodec {}), base_path.clone());
 
             wal_manager.initialize().await?;
             wal_manager.load().await?;
@@ -87,6 +88,7 @@ impl DBEngine {
         Ok(manager)
     }
 
+    /// Gets the value for the given table and key.
     pub async fn get(&self, table: &str, key: &str) -> errors::Result<GetResponse> {
         // 1. Validation
         validate_table_name(table)?;
@@ -122,16 +124,17 @@ impl DBEngine {
         }
     }
 
+    /// Puts the given key-value pair into the specified table.
     pub async fn put(&self, table: String, key: String, value: String) -> errors::Result<()> {
         // 1. Validation
         validate_table_name(&table)?;
         validate_key(&key)?;
         validate_value(&value)?;
 
-        let wal_record = WalRecord {
+        let wal_record = WALRecord {
             record_id: 0,
             record_type: wal::record::RecordType::Put,
-            data: WalPayload {
+            data: WALPayload {
                 table: table.clone(),
                 key: key.clone(),
                 value: Some(value.clone()),
@@ -151,15 +154,16 @@ impl DBEngine {
         Ok(())
     }
 
+    /// Deletes the given key from the specified table.
     pub async fn delete(&self, table: String, key: String) -> errors::Result<()> {
         // 1 Validation
         validate_table_name(&table)?;
         validate_key(&key)?;
 
-        let wal_record = WalRecord {
+        let wal_record = WALRecord {
             record_id: 0,
             record_type: wal::record::RecordType::Delete,
-            data: WalPayload {
+            data: WALPayload {
                 table: table.to_string(),
                 key: key.to_string(),
                 value: None,
@@ -175,6 +179,13 @@ impl DBEngine {
         {
             self.memtable_manager.delete(table, key).await?;
         }
+
+        Ok(())
+    }
+
+    /// Flushes the WAL to disk.
+    pub async fn flush_wal(&self) -> errors::Result<()> {
+        self.wal_manager.lock().await.flush_wal().await?;
 
         Ok(())
     }
