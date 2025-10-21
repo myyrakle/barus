@@ -11,9 +11,9 @@ pub mod barus {
 
 use barus::barus_service_server::{BarusService, BarusServiceServer};
 use barus::{
-    CreateTableRequest, CreateTableResponse, DeleteRequest, DeleteResponse, FlushWalRequest,
-    FlushWalResponse, GetRequest, GetResponse, HealthRequest, HealthResponse,
-    ListTablesRequest, ListTablesResponse, PutRequest, PutResponse, TableInfo,
+    CreateTableRequest, CreateTableResponse, DeleteRequest, DeleteResponse, DropTableRequest,
+    DropTableResponse, FlushWalRequest, FlushWalResponse, GetRequest, GetResponse, HealthRequest,
+    HealthResponse, ListTablesRequest, ListTablesResponse, PutRequest, PutResponse, TableInfo,
 };
 
 pub struct BarusGrpcService {
@@ -64,6 +64,27 @@ impl BarusService for BarusGrpcService {
             })),
             Err(e) => Err(Status::internal(format!(
                 "Failed to create table '{}': {:?}",
+                req.table, e
+            ))),
+        }
+    }
+
+    async fn drop_table(
+        &self,
+        request: Request<DropTableRequest>,
+    ) -> Result<Response<DropTableResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.table.is_empty() {
+            return Err(Status::invalid_argument("table name cannot be empty"));
+        }
+
+        match self.db.delete_table(&req.table).await {
+            Ok(_) => Ok(Response::new(DropTableResponse {
+                message: format!("Table '{}' dropped successfully", req.table),
+            })),
+            Err(e) => Err(Status::internal(format!(
+                "Failed to drop table '{}': {:?}",
                 req.table, e
             ))),
         }
