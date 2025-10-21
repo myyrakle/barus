@@ -9,17 +9,19 @@ use std::{
 use tokio::sync::{Mutex, RwLock};
 
 use crate::{
+    compaction::MemtableFlushEvent,
     errors::{self, Errors},
     system::SystemInfo,
 };
 
 #[derive(Debug)]
 pub struct MemtableManager {
-    memtable_map: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
-    memtable_current_size: Arc<AtomicU64>,
+    pub(crate) memtable_map: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
+    pub(crate) memtable_current_size: Arc<AtomicU64>,
     #[allow(dead_code)]
     memtable_size_soft_limit: usize,
     memtable_size_hard_limit: usize,
+    memtable_flush_sender: tokio::sync::mpsc::Sender<MemtableFlushEvent>,
 }
 
 impl MemtableManager {
@@ -32,11 +34,14 @@ impl MemtableManager {
         let memtable_size_hard_limit =
             (total_memory as f64 * crate::config::MEMTABLE_SIZE_HARD_LIMIT_RATE) as usize;
 
+        let (fake_sender, _) = tokio::sync::mpsc::channel(1);
+
         Self {
             memtable_map: Arc::new(RwLock::new(HashMap::new())),
             memtable_current_size: Arc::new(AtomicU64::new(0)),
             memtable_size_soft_limit,
             memtable_size_hard_limit,
+            memtable_flush_sender: fake_sender,
         }
     }
 

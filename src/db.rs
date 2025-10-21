@@ -25,7 +25,7 @@ pub struct DBEngine {
     wal_manager: Arc<Mutex<WALManager>>,
     memtable_manager: Arc<MemtableManager>,
     disktable_manager: Arc<DiskTableManager>,
-    compaction_manager: Arc<CompactionManager>,
+    compaction_manager: Arc<Mutex<CompactionManager>>,
 }
 
 pub struct GetResponse {
@@ -78,7 +78,7 @@ impl DBEngine {
         };
 
         // 5. Memtable Load
-        let memtable_manager = { Arc::new(MemtableManager::new(&system_info)) };
+        let mut memtable_manager = MemtableManager::new(&system_info);
 
         // TODO: Basic Table Setting Init
 
@@ -91,26 +91,23 @@ impl DBEngine {
             disktable_manager
         };
 
-        // 7. Load table list
+        // 7. compaction manager load
+        let compaction_manager =
+            CompactionManager::new(&mut memtable_manager, disktable_manager.clone());
+
+        // 8. Load table list
         {
             let table_list = disktable_manager.list_tables().await?;
             memtable_manager.load_table_list(table_list).await?;
         }
 
-        // 8. compaction manager load
-        let compaction_manager = {
-            let compaction_manager = Arc::new(CompactionManager::new());
-
-            compaction_manager
-        };
-
-        let manager = Self {
+        let mut manager = Self {
             system_info,
             base_path: base_path.clone(),
             wal_manager,
-            memtable_manager,
+            memtable_manager: Arc::new(memtable_manager),
             disktable_manager,
-            compaction_manager,
+            compaction_manager: Arc::new(Mutex::new(compaction_manager)),
         };
 
         manager.start_background().await?;
@@ -118,13 +115,13 @@ impl DBEngine {
         Ok(manager)
     }
 
-    async fn start_background(&self) -> errors::Result<()> {
+    async fn start_background(&mut self) -> errors::Result<()> {
         {
             self.wal_manager.lock().await.start_background()?;
         }
 
         {
-            self.compaction_manager.start_background()?;
+            self.compaction_manager.lock().await.start_background()?;
         }
 
         Ok(())
