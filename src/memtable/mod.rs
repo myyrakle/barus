@@ -59,6 +59,33 @@ impl MemtableManager {
         Ok(())
     }
 
+    pub async fn delete_table(&self, table: &str) -> errors::Result<()> {
+        // 1. Delete the table from the map
+        let delete_result = {
+            let mut memtable_map = self.memtable_map.write().await;
+
+            memtable_map.remove(table)
+        };
+
+        // 2. Decrement the current size
+        if let Some(deleted_table) = delete_result {
+            let reclaimed: u64 = deleted_table
+                .lock()
+                .await
+                .table
+                .values()
+                .filter_map(|e| e.value.as_ref().map(|v| v.len() as u64))
+                .sum();
+
+            if reclaimed > 0 {
+                self.memtable_current_size
+                    .fetch_sub(reclaimed, Ordering::SeqCst);
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn put(&self, table: String, key: String, value: String) -> errors::Result<()> {
         let bytes = key.len() + value.len();
 
@@ -84,20 +111,13 @@ impl MemtableManager {
             }
         }
 
-        // 2. get or create memtable for the table
+        // 2. get memtable for the table
         let memtable = {
             let memtable_map = self.memtable_map.read().await;
 
             match memtable_map.get(&table) {
                 Some(memtable) => memtable.clone(),
-                None => {
-                    drop(memtable_map); // Release read lock before acquiring write lock
-
-                    let new_memtable = Arc::new(Mutex::new(HashMemtable::new()));
-                    let mut memtable_map = self.memtable_map.write().await;
-                    memtable_map.insert(table.to_string(), new_memtable.clone());
-                    new_memtable
-                }
+                None => return Err(errors::Errors::TableNotFound(table.to_string())),
             }
         };
 
