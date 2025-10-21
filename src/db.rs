@@ -39,8 +39,8 @@ pub struct ListTablesResponseItem {
 }
 
 pub struct DBStatusResponse {
-    memtable_size: u64,
-    table_count: usize,
+    pub memtable_size: u64,
+    pub table_count: usize,
 }
 
 impl DBEngine {
