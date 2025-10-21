@@ -52,11 +52,10 @@ impl DiskTableManager {
             errors::Errors::TableCreationError(format!("Failed to read table entry: {}", e))
         })? {
             let file_name = entry.file_name();
-            if let Some(name_str) = file_name.to_str() {
-                if name_str.ends_with(".json") {
+            if let Some(name_str) = file_name.to_str()
+                && name_str.ends_with(".json") {
                     table_names.push(name_str.trim_end_matches(".json").to_string());
                 }
-            }
         }
 
         Ok(table_names)
