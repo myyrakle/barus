@@ -10,6 +10,9 @@ service BarusService {
   // Create a new table
   rpc CreateTable(CreateTableRequest) returns (CreateTableResponse);
 
+  // Get table information
+  rpc GetTable(GetTableRequest) returns (GetTableResponse);
+
   // Drop a table
   rpc DropTable(DropTableRequest) returns (DropTableResponse);
 
@@ -94,4 +97,12 @@ message DropTableRequest {
 
 message DropTableResponse {
   string message = 1;
+}
+
+message GetTableRequest {
+  string table = 1;
+}
+
+message GetTableResponse {
+  string table_name = 1;
 }
