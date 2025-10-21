@@ -30,6 +30,14 @@ pub struct GetResponse {
     pub value: String,
 }
 
+pub struct ListTablesResponse {
+    pub tables: Vec<ListTablesResponseItem>,
+}
+
+pub struct ListTablesResponseItem {
+    pub table_name: String,
+}
+
 impl DBEngine {
     /// Initializes the DBEngine with the given base path.
     pub async fn initialize(base_path: PathBuf) -> errors::Result<Self> {
@@ -89,8 +97,15 @@ impl DBEngine {
     }
 
     /// List all table names
-    pub async fn list_tables(&self) -> errors::Result<Vec<String>> {
-        self.disktable_manager.list_tables().await
+    pub async fn list_tables(&self) -> errors::Result<ListTablesResponse> {
+        let table_names = self.disktable_manager.list_tables().await?;
+
+        let tables = table_names
+            .into_iter()
+            .map(|name| ListTablesResponseItem { table_name: name })
+            .collect();
+
+        Ok(ListTablesResponse { tables })
     }
 
     /// Create Table  

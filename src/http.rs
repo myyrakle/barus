@@ -14,6 +14,7 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
 
     let app = Router::new()
         .route("/", get(root))
+        .route("/tables", get(list_tables))
         .route("/tables/{table}", post(create_table))
         .route("/tables/{table}/value", get(get_value))
         .route("/tables/{table}/value", put(put_value))
@@ -31,6 +32,44 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
 
 async fn root() -> &'static str {
     "OK"
+}
+
+#[derive(serde::Serialize)]
+pub struct ListTablesResponse {
+    pub tables: Vec<ListTablesResponseItem>,
+}
+
+#[derive(serde::Serialize)]
+pub struct ListTablesResponseItem {
+    pub table_name: String,
+}
+
+async fn list_tables(Extension(db): Extension<Arc<DBEngine>>) -> impl IntoResponse {
+    match db.list_tables().await {
+        Ok(list_tables_result) => {
+            let tables_response_items: Vec<ListTablesResponseItem> = list_tables_result
+                .tables
+                .into_iter()
+                .map(|table| ListTablesResponseItem {
+                    table_name: table.table_name,
+                })
+                .collect();
+
+            let response = ListTablesResponse {
+                tables: tables_response_items,
+            };
+
+            Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(serde_json::to_string(&response).unwrap())
+                .unwrap()
+        }
+        Err(e) => {
+            let error_message = format!("Error listing tables: {:?}", e);
+            Response::builder().status(500).body(error_message).unwrap()
+        }
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
