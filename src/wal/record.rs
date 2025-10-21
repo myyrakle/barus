@@ -1,16 +1,16 @@
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
-pub struct WalRecordID(u64);
+pub struct WALRecordID(u64);
 
 #[derive(
     Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode,
 )]
-pub struct WalPayload {
+pub struct WALPayload {
     pub table: String,
     pub key: String,
     pub value: Option<String>,
 }
 
-impl WalPayload {
+impl WALPayload {
     pub fn size(&self) -> usize {
         let table_size = self.table.len();
         let key_size = self.key.len();
@@ -27,13 +27,13 @@ impl WalPayload {
 #[derive(
     Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode,
 )]
-pub struct WalRecord {
+pub struct WALRecord {
     pub record_id: u64,
     pub record_type: RecordType,
-    pub data: WalPayload,
+    pub data: WALPayload,
 }
 
-impl WalRecord {
+impl WALRecord {
     pub fn size(&self) -> usize {
         let payload_size = self.data.size();
         // 8 bytes for record_id, 1 byte for record_type

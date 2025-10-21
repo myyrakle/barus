@@ -5,10 +5,10 @@ use crate::{
     config::{WAL_DIRECTORY, WAL_RECORD_HEADER_SIZE, WAL_SEGMENT_SIZE, WAL_STATE_PATH},
     errors,
     wal::{
-        encode::WalRecordCodec,
-        record::WalRecord,
-        segment::{WALSegmentWriteHandle, WalSegmentID},
-        state::{WALStateWriteHandles, WalGlobalState},
+        encode::WALRecordCodec,
+        record::WALRecord,
+        segment::{WALSegmentID, WALSegmentWriteHandle},
+        state::{WALGlobalState, WALStateWriteHandles},
     },
 };
 
@@ -21,16 +21,16 @@ pub mod state;
 pub static WAL_ZERO_CHUNK: [u8; WAL_SEGMENT_SIZE] = [0u8; WAL_SEGMENT_SIZE];
 
 pub struct WALManager {
-    codec: Box<dyn WalRecordCodec + Send + Sync>,
+    codec: Box<dyn WALRecordCodec + Send + Sync>,
     base_path: PathBuf,
-    state: WalGlobalState,
+    state: WALGlobalState,
     background_fsync_duration: Option<std::time::Duration>,
     wal_write_handles: Arc<Mutex<WALSegmentWriteHandle>>,
     wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
 }
 
 impl WALManager {
-    pub fn new(codec: Box<dyn WalRecordCodec + Send + Sync>, base_path: PathBuf) -> Self {
+    pub fn new(codec: Box<dyn WALRecordCodec + Send + Sync>, base_path: PathBuf) -> Self {
         Self {
             codec,
             base_path,
@@ -49,13 +49,13 @@ impl WALManager {
         let wal_dir_path = self.base_path.join(WAL_DIRECTORY);
         if !wal_dir_path.exists() {
             std::fs::create_dir_all(&wal_dir_path)
-                .map_err(|e| errors::Errors::WalInitializationError(e.to_string()))?;
+                .map_err(|e| errors::Errors::WALInitializationError(e.to_string()))?;
         }
 
         // 2. create WAL state file if not exists
         let wal_state_path = self.base_path.join(WAL_STATE_PATH);
         if !wal_state_path.exists() {
-            let initial_state = WalGlobalState::default();
+            let initial_state = WALGlobalState::default();
 
             let mut file_handle = initial_state.get_file_init_handle(&self.base_path).await?;
             initial_state.save(&mut file_handle).await?;
@@ -63,10 +63,10 @@ impl WALManager {
 
         // 3. create initial segment file if wal directory is empty
         let entries = std::fs::read_dir(&wal_dir_path)
-            .map_err(|e| errors::Errors::WalInitializationError(e.to_string()))?;
+            .map_err(|e| errors::Errors::WALInitializationError(e.to_string()))?;
 
         if entries.count() == 0 {
-            let segment_file_name: String = (&WalSegmentID::new(0u64)).into();
+            let segment_file_name: String = (&WALSegmentID::new(0u64)).into();
             let segment_file_path = wal_dir_path.join(segment_file_name);
 
             let file = OpenOptions::new()
@@ -77,14 +77,14 @@ impl WALManager {
                 .open(&segment_file_path)
                 .await
                 .map_err(|e| {
-                    errors::Errors::WalSegmentFileOpenError(format!(
+                    errors::Errors::WALSegmentFileOpenError(format!(
                         "Failed to open WAL segment file: {}",
                         e
                     ))
                 })?;
 
             file.set_len(WAL_SEGMENT_SIZE as u64).await.map_err(|e| {
-                errors::Errors::WalSegmentFileOpenError(format!(
+                errors::Errors::WALSegmentFileOpenError(format!(
                     "Failed to set length for initial WAL segment file: {}",
                     e
                 ))
@@ -97,7 +97,7 @@ impl WALManager {
     // Load WAL states from the state file
     pub async fn load(&mut self) -> errors::Result<()> {
         // Load the WAL global state from the state file
-        self.state = WalGlobalState::load(&self.base_path).await?;
+        self.state = WALGlobalState::load(&self.base_path).await?;
         {
             self.wal_state_write_handles.lock().await.state_file =
                 Some(self.state.get_file_handle(&self.base_path).await?);
@@ -116,7 +116,7 @@ impl WALManager {
             .open(&segment_file_path)
             .await
             .map_err(|e| {
-                errors::Errors::WalSegmentFileOpenError(format!(
+                errors::Errors::WALSegmentFileOpenError(format!(
                     "Failed to open WAL segment file: {}",
                     e
                 ))
@@ -188,14 +188,14 @@ impl WALManager {
     }
 
     // Append a new record to the WAL
-    pub async fn append(&mut self, mut record: WalRecord) -> errors::Result<()> {
+    pub async fn append(&mut self, mut record: WALRecord) -> errors::Result<()> {
         // 1. Get Write Lock
         let write_mutex = self.wal_write_handles.clone();
 
         let mut write_state = write_mutex.lock().await;
 
         if write_state.is_empty() {
-            return Err(errors::Errors::WalSegmentFileOpenError(
+            return Err(errors::Errors::WALSegmentFileOpenError(
                 "Current WAL segment file is not opened".to_string(),
             ));
         }
@@ -240,7 +240,7 @@ impl WALManager {
         // 1. 모든 세그먼트 파일 읽기 (파일만 필터링해서 파일명 반환)
         let mut segment_files: Vec<_> = std::fs::read_dir(&wal_dir)
             .map_err(|e| {
-                errors::Errors::WalSegmentFileOpenError(format!(
+                errors::Errors::WALSegmentFileOpenError(format!(
                     "Failed to read WAL directory: {}",
                     e
                 ))
@@ -268,11 +268,11 @@ impl WALManager {
     pub async fn scan_records(
         &self,
         segment_file: &str,
-    ) -> errors::Result<(Vec<WalRecord>, usize)> {
+    ) -> errors::Result<(Vec<WALRecord>, usize)> {
         let segment_file_path = self.base_path.join(WAL_DIRECTORY).join(segment_file);
 
         let bytes = tokio::fs::read(&segment_file_path).await.map_err(|e| {
-            errors::Errors::WalSegmentFileOpenError(format!(
+            errors::Errors::WALSegmentFileOpenError(format!(
                 "Failed to read WAL segment file: {}",
                 e
             ))
@@ -308,7 +308,7 @@ impl WALManager {
 
     // Move the checkpoint to the specified segment and record ID
     pub async fn move_checkpoint(&mut self, segment_id: u64, record_id: u64) -> errors::Result<()> {
-        self.state.last_checkpoint_segment_id = WalSegmentID::new(segment_id);
+        self.state.last_checkpoint_segment_id = WALSegmentID::new(segment_id);
         self.state.last_checkpoint_record_id = record_id;
         self.save_state().await?;
 
@@ -338,7 +338,7 @@ impl WALManager {
                 .open(&new_segment_file_path)
                 .await
                 .map_err(|e| {
-                    errors::Errors::WalSegmentFileOpenError(format!(
+                    errors::Errors::WALSegmentFileOpenError(format!(
                         "Failed to create new WAL segment file: {}",
                         e
                     ))
@@ -359,7 +359,7 @@ impl WALManager {
             };
 
             if result != 0 {
-                return Err(errors::Errors::WalSegmentFileOpenError(format!(
+                return Err(errors::Errors::WALSegmentFileOpenError(format!(
                     "Failed to allocate space for new WAL segment file: {}",
                     std::io::Error::last_os_error()
                 )));
@@ -375,7 +375,7 @@ impl WALManager {
             };
 
             if result != 0 {
-                return Err(errors::Errors::WalSegmentFileOpenError(format!(
+                return Err(errors::Errors::WALSegmentFileOpenError(format!(
                     "Failed to zero-fill new WAL segment file: {}",
                     std::io::Error::last_os_error()
                 )));
@@ -396,21 +396,21 @@ impl WALManager {
                 .open(&new_segment_file_path)
                 .await
                 .map_err(|e| {
-                    errors::Errors::WalSegmentFileOpenError(format!(
+                    errors::Errors::WALSegmentFileOpenError(format!(
                         "Failed to create new WAL segment file: {}",
                         e
                     ))
                 })?;
 
             file.set_len(WAL_SEGMENT_SIZE as u64).await.map_err(|e| {
-                errors::Errors::WalSegmentFileOpenError(format!(
+                errors::Errors::WALSegmentFileOpenError(format!(
                     "Failed to set length for new WAL segment file: {}",
                     e
                 ))
             })?;
 
             file.write_all(&WAL_ZERO_CHUNK).await.map_err(|e| {
-                errors::Errors::WalSegmentFileOpenError(format!(
+                errors::Errors::WALSegmentFileOpenError(format!(
                     "Failed to zero-fill new WAL segment file: {}",
                     e
                 ))
@@ -418,7 +418,7 @@ impl WALManager {
 
             file.seek(std::io::SeekFrom::Start(0))
                 .await
-                .map_err(|e| errors::Errors::WalSegmentFileOpenError(e.to_string()))?;
+                .map_err(|e| errors::Errors::WALSegmentFileOpenError(e.to_string()))?;
 
             self.state.last_segment_file_offset = 0;
 
@@ -430,7 +430,7 @@ impl WALManager {
         let mut state_handles = self.wal_state_write_handles.lock().await;
 
         let file = state_handles.state_file.as_mut().ok_or_else(|| {
-            errors::Errors::WalStateWriteError("WAL state file is not opened".to_string())
+            errors::Errors::WALStateWriteError("WAL state file is not opened".to_string())
         })?;
 
         self.state.save(file).await

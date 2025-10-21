@@ -10,8 +10,8 @@ use crate::{
     validate::{validate_key, validate_table_name, validate_value},
     wal::{
         self, WALManager,
-        encode::WalRecordBincodeCodec,
-        record::{WalPayload, WalRecord},
+        encode::WALRecordBincodeCodec,
+        record::{WALPayload, WALRecord},
     },
 };
 
@@ -41,7 +41,7 @@ impl DBEngine {
             if e.kind() == std::io::ErrorKind::AlreadyExists {
                 Ok(())
             } else {
-                Err(errors::Errors::WalInitializationError(format!(
+                Err(errors::Errors::WALInitializationError(format!(
                     "Failed to create database directory: {}",
                     e
                 )))
@@ -53,7 +53,7 @@ impl DBEngine {
         // 4. Initialize and load the WAL manager
         let wal_manager = {
             let mut wal_manager =
-                WALManager::new(Box::new(WalRecordBincodeCodec {}), base_path.clone());
+                WALManager::new(Box::new(WALRecordBincodeCodec {}), base_path.clone());
 
             wal_manager.initialize().await?;
             wal_manager.load().await?;
@@ -128,10 +128,10 @@ impl DBEngine {
         validate_key(&key)?;
         validate_value(&value)?;
 
-        let wal_record = WalRecord {
+        let wal_record = WALRecord {
             record_id: 0,
             record_type: wal::record::RecordType::Put,
-            data: WalPayload {
+            data: WALPayload {
                 table: table.clone(),
                 key: key.clone(),
                 value: Some(value.clone()),
@@ -156,10 +156,10 @@ impl DBEngine {
         validate_table_name(&table)?;
         validate_key(&key)?;
 
-        let wal_record = WalRecord {
+        let wal_record = WALRecord {
             record_id: 0,
             record_type: wal::record::RecordType::Delete,
-            data: WalPayload {
+            data: WALPayload {
                 table: table.to_string(),
                 key: key.to_string(),
                 value: None,
