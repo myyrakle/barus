@@ -40,6 +40,17 @@ impl MemtableManager {
         }
     }
 
+    pub async fn create_table(&self, table: &str) -> errors::Result<()> {
+        let mut memtable_map = self.memtable_map.write().await;
+
+        if !memtable_map.contains_key(table) {
+            let memtable = Arc::new(Mutex::new(HashMemtable::new()));
+            memtable_map.insert(table.to_string(), memtable);
+        }
+
+        Ok(())
+    }
+
     pub async fn put(&self, table: String, key: String, value: String) -> errors::Result<()> {
         let bytes = key.len() + value.len();
 

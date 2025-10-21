@@ -88,6 +88,20 @@ impl DBEngine {
         Ok(manager)
     }
 
+    /// Create Table  
+    pub async fn create_table(&self, table: &str) -> errors::Result<()> {
+        // 1. Validation
+        validate_table_name(table)?;
+
+        // 2. Create table in Disktable Manager
+        self.disktable_manager.create_table(table).await?;
+
+        // 3. Create table in Memtable Manager
+        self.memtable_manager.create_table(table).await?;
+
+        Ok(())
+    }
+
     /// Gets the value for the given table and key.
     pub async fn get(&self, table: &str, key: &str) -> errors::Result<GetResponse> {
         // 1. Validation
