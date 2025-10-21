@@ -59,6 +59,16 @@ impl MemtableManager {
         Ok(())
     }
 
+    pub async fn delete_table(&self, table: &str) -> errors::Result<()> {
+        let mut memtable_map = self.memtable_map.write().await;
+
+        if memtable_map.contains_key(table) {
+            memtable_map.remove(table);
+        }
+
+        Ok(())
+    }
+
     pub async fn put(&self, table: String, key: String, value: String) -> errors::Result<()> {
         let bytes = key.len() + value.len();
 

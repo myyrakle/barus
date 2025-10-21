@@ -53,9 +53,10 @@ impl DiskTableManager {
         })? {
             let file_name = entry.file_name();
             if let Some(name_str) = file_name.to_str()
-                && name_str.ends_with(".json") {
-                    table_names.push(name_str.trim_end_matches(".json").to_string());
-                }
+                && name_str.ends_with(".json")
+            {
+                table_names.push(name_str.trim_end_matches(".json").to_string());
+            }
         }
 
         Ok(table_names)
@@ -111,7 +112,9 @@ impl DiskTableManager {
         Ok(())
     }
 
-    pub async fn drop_table(&self, table: &str) -> errors::Result<()> {
+    // delete all table datas.
+    // No error occurs if db file not exists
+    pub async fn delete_table(&self, table: &str) -> errors::Result<()> {
         // 1. Table info file 삭제
         let table_info_path = self
             .base_path

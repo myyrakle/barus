@@ -108,7 +108,8 @@ impl DBEngine {
         Ok(ListTablesResponse { tables })
     }
 
-    /// Create Table  
+    /// Create Table
+    /// Error occurs if table already exists
     pub async fn create_table(&self, table: &str) -> errors::Result<()> {
         // 1. Validation
         validate_table_name(table)?;
@@ -118,6 +119,21 @@ impl DBEngine {
 
         // 3. Create table in Memtable Manager
         self.memtable_manager.create_table(table).await?;
+
+        Ok(())
+    }
+
+    /// Delete Table
+    /// No error occurs if table does not exist
+    pub async fn delete_table(&self, table: &str) -> errors::Result<()> {
+        // 1. Validation
+        validate_table_name(table)?;
+
+        // 2. Delete table in Disktable Manager
+        self.disktable_manager.delete_table(table).await?;
+
+        // 3. Delete table in Memtable Manager
+        self.memtable_manager.delete_table(table).await?;
 
         Ok(())
     }
