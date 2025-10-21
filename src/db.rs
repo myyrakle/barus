@@ -31,6 +31,7 @@ pub struct GetResponse {
 }
 
 impl DBEngine {
+    /// Initializes the DBEngine with the given base path.
     pub async fn initialize(base_path: PathBuf) -> errors::Result<Self> {
         // 1. Load System Info
         let system_info = get_system_info();
@@ -87,6 +88,7 @@ impl DBEngine {
         Ok(manager)
     }
 
+    /// Gets the value for the given table and key.
     pub async fn get(&self, table: &str, key: &str) -> errors::Result<GetResponse> {
         // 1. Validation
         validate_table_name(table)?;
@@ -122,6 +124,7 @@ impl DBEngine {
         }
     }
 
+    /// Puts the given key-value pair into the specified table.
     pub async fn put(&self, table: String, key: String, value: String) -> errors::Result<()> {
         // 1. Validation
         validate_table_name(&table)?;
@@ -151,6 +154,7 @@ impl DBEngine {
         Ok(())
     }
 
+    /// Deletes the given key from the specified table.
     pub async fn delete(&self, table: String, key: String) -> errors::Result<()> {
         // 1 Validation
         validate_table_name(&table)?;
@@ -179,6 +183,7 @@ impl DBEngine {
         Ok(())
     }
 
+    /// Flushes the WAL to disk.
     pub async fn flush_wal(&self) -> errors::Result<()> {
         self.wal_manager.lock().await.flush_wal().await?;
 
