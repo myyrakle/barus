@@ -4,7 +4,7 @@ use axum::{
     Extension, Json,
     extract::{Path, Query},
     response::{IntoResponse, Response},
-    routing::{delete, put},
+    routing::{delete, post, put},
 };
 
 use crate::{config::HTTP_PORT, db::DBEngine};
@@ -17,6 +17,7 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
         .route("/{table}/value", get(get_value))
         .route("/{table}/value", put(put_value))
         .route("/{table}/value", delete(delete_value))
+        .route("/wal/flush", post(flush_wal))
         .layer(axum::extract::Extension(db_engine));
 
     let addr = format!("0.0.0.0:{}", *HTTP_PORT);
@@ -158,6 +159,19 @@ async fn delete_value(
         }
         Err(e) => {
             let error_message = format!("Error deleting key: {:?}", e);
+            Response::builder().status(500).body(error_message).unwrap()
+        }
+    }
+}
+
+async fn flush_wal(Extension(db): Extension<Arc<DBEngine>>) -> impl IntoResponse {
+    match db.flush_wal().await {
+        Ok(_) => Response::builder()
+            .status(200)
+            .body("WAL flushed successfully".into())
+            .unwrap(),
+        Err(e) => {
+            let error_message = format!("Error flushing WAL: {:?}", e);
             Response::builder().status(500).body(error_message).unwrap()
         }
     }
