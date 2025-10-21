@@ -88,6 +88,11 @@ impl DBEngine {
         Ok(manager)
     }
 
+    /// List all table names
+    pub async fn list_tables(&self) -> errors::Result<Vec<String>> {
+        self.disktable_manager.list_tables().await
+    }
+
     /// Create Table  
     pub async fn create_table(&self, table: &str) -> errors::Result<()> {
         // 1. Validation
