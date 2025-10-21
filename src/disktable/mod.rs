@@ -40,6 +40,28 @@ impl DiskTableManager {
         Ok(())
     }
 
+    pub async fn list_tables(&self) -> errors::Result<Vec<String>> {
+        let mut table_names = Vec::new();
+
+        let tables_path = self.base_path.join(TABLES_DIRECTORY);
+        let mut dir_entries = tokio::fs::read_dir(tables_path).await.map_err(|e| {
+            errors::Errors::TableCreationError(format!("Failed to read tables directory: {}", e))
+        })?;
+
+        while let Some(entry) = dir_entries.next_entry().await.map_err(|e| {
+            errors::Errors::TableCreationError(format!("Failed to read table entry: {}", e))
+        })? {
+            let file_name = entry.file_name();
+            if let Some(name_str) = file_name.to_str() {
+                if name_str.ends_with(".json") {
+                    table_names.push(name_str.trim_end_matches(".json").to_string());
+                }
+            }
+        }
+
+        Ok(table_names)
+    }
+
     pub async fn create_table(&self, table: &str) -> errors::Result<()> {
         // 1. Create table info file
         let table_info_path = self
