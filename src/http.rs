@@ -16,6 +16,7 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
         .route("/", get(root))
         .route("/tables", get(list_tables))
         .route("/tables/{table}", post(create_table))
+        .route("/tables/{table}", delete(delete_table))
         .route("/tables/{table}/value", get(get_value))
         .route("/tables/{table}/value", put(put_value))
         .route("/tables/{table}/value", delete(delete_value))
@@ -87,6 +88,22 @@ async fn create_table(
             .unwrap(),
         Err(e) => {
             let error_message = format!("Error creating table '{}': {:?}", table, e);
+            Response::builder().status(500).body(error_message).unwrap()
+        }
+    }
+}
+
+async fn delete_table(
+    Extension(db): Extension<Arc<DBEngine>>,
+    Path(table): Path<String>,
+) -> impl IntoResponse {
+    match db.delete_table(&table).await {
+        Ok(_) => Response::builder()
+            .status(200)
+            .body(format!("Table '{}' deleted successfully", table))
+            .unwrap(),
+        Err(e) => {
+            let error_message = format!("Error deleting table '{}': {:?}", table, e);
             Response::builder().status(500).body(error_message).unwrap()
         }
     }
