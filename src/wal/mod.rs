@@ -174,6 +174,19 @@ impl WALManager {
         Ok(())
     }
 
+    // Flush current WAL segment to disk
+    pub async fn flush_wal(&self) -> errors::Result<()> {
+        let state = self.wal_write_handles.lock().await;
+
+        // fsync current segment file
+        #[allow(clippy::collapsible_if)]
+        if !state.is_empty() {
+            state.flush()?;
+        }
+
+        Ok(())
+    }
+
     // Append a new record to the WAL
     pub async fn append(&mut self, mut record: WalRecord) -> errors::Result<()> {
         // 1. Get Write Lock
