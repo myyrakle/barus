@@ -11,8 +11,8 @@ pub mod barus {
 
 use barus::barus_service_server::{BarusService, BarusServiceServer};
 use barus::{
-    DeleteRequest, DeleteResponse, GetRequest, GetResponse, HealthRequest, HealthResponse,
-    PutRequest, PutResponse,
+    DeleteRequest, DeleteResponse, FlushWalRequest, FlushWalResponse, GetRequest, GetResponse,
+    HealthRequest, HealthResponse, PutRequest, PutResponse,
 };
 
 pub struct BarusGrpcService {
@@ -98,6 +98,18 @@ impl BarusService for BarusGrpcService {
         Ok(Response::new(HealthResponse {
             status: "OK".to_string(),
         }))
+    }
+
+    async fn flush_wal(
+        &self,
+        _request: Request<FlushWalRequest>,
+    ) -> Result<Response<FlushWalResponse>, Status> {
+        match self.db.flush_wal().await {
+            Ok(_) => Ok(Response::new(FlushWalResponse {
+                message: "WAL flushed successfully".to_string(),
+            })),
+            Err(e) => Err(Status::internal(format!("Failed to flush WAL: {:?}", e))),
+        }
     }
 }
 
