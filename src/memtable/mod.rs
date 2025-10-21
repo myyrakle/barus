@@ -94,20 +94,13 @@ impl MemtableManager {
             }
         }
 
-        // 2. get or create memtable for the table
+        // 2. get memtable for the table
         let memtable = {
             let memtable_map = self.memtable_map.read().await;
 
             match memtable_map.get(&table) {
                 Some(memtable) => memtable.clone(),
-                None => {
-                    drop(memtable_map); // Release read lock before acquiring write lock
-
-                    let new_memtable = Arc::new(Mutex::new(HashMemtable::new()));
-                    let mut memtable_map = self.memtable_map.write().await;
-                    memtable_map.insert(table.to_string(), new_memtable.clone());
-                    new_memtable
-                }
+                None => return Err(errors::Errors::TableNotFound(table.to_string())),
             }
         };
 
