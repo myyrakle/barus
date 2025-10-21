@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::{
-    disktable::{DiskTableManager, DisktableGetResult},
+    disktable::{DiskTableManager, DisktableGetResult, table::TableInfo},
     errors,
     memtable::{MemtableGetResult, MemtableManager},
     system::{SystemInfo, get_system_info},
@@ -112,6 +112,13 @@ impl DBEngine {
             .collect();
 
         Ok(ListTablesResponse { tables })
+    }
+
+    /// get table information
+    pub async fn get_table(&self, table: &str) -> errors::Result<TableInfo> {
+        let table_info = self.disktable_manager.get_table(table).await?;
+
+        Ok(table_info)
     }
 
     /// Create Table

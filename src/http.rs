@@ -15,6 +15,7 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
     let app = Router::new()
         .route("/", get(root))
         .route("/tables", get(list_tables))
+        .route("/tables/{table}", get(get_table))
         .route("/tables/{table}", post(create_table))
         .route("/tables/{table}", delete(delete_table))
         .route("/tables/{table}/value", get(get_value))
@@ -33,6 +34,36 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
 
 async fn root() -> &'static str {
     "OK"
+}
+
+#[derive(serde::Serialize)]
+pub struct GetTableResponse {
+    pub table_name: String,
+}
+
+async fn get_table(
+    Extension(db): Extension<Arc<DBEngine>>,
+    Path(table): Path<String>,
+) -> impl IntoResponse {
+    let result = db.get_table(&table).await;
+
+    match result {
+        Ok(table) => {
+            let response = GetTableResponse {
+                table_name: table.name,
+            };
+
+            Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(serde_json::to_string(&response).unwrap())
+                .unwrap()
+        }
+        Err(err) => {
+            let error_message = format!("Error getting table '{}': {:?}", table, err);
+            Response::builder().status(500).body(error_message).unwrap()
+        }
+    }
 }
 
 #[derive(serde::Serialize)]

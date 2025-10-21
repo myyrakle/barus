@@ -1,4 +1,4 @@
-use crate::{config::TABLES_DIRECTORY, errors};
+use crate::{config::TABLES_DIRECTORY, disktable::table::TableInfo, errors};
 
 pub mod index;
 pub mod segment;
@@ -45,11 +45,11 @@ impl DiskTableManager {
 
         let tables_path = self.base_path.join(TABLES_DIRECTORY);
         let mut dir_entries = tokio::fs::read_dir(tables_path).await.map_err(|e| {
-            errors::Errors::TableCreationError(format!("Failed to read tables directory: {}", e))
+            errors::Errors::TableListFailed(format!("Failed to read tables directory: {}", e))
         })?;
 
         while let Some(entry) = dir_entries.next_entry().await.map_err(|e| {
-            errors::Errors::TableCreationError(format!("Failed to read table entry: {}", e))
+            errors::Errors::TableListFailed(format!("Failed to read table entry: {}", e))
         })? {
             let file_name = entry.file_name();
             if let Some(name_str) = file_name.to_str()
@@ -60,6 +60,23 @@ impl DiskTableManager {
         }
 
         Ok(table_names)
+    }
+
+    pub async fn get_table(&self, table: &str) -> errors::Result<TableInfo> {
+        let table_path = self
+            .base_path
+            .join(TABLES_DIRECTORY)
+            .join(format!("{}.json", table));
+
+        let table_info_bytes = tokio::fs::read(table_path).await.map_err(|e| {
+            errors::Errors::TableNotFound(format!("Failed to read table file: {}", e))
+        })?;
+
+        let table_info = serde_json::from_slice(&table_info_bytes).map_err(|e| {
+            errors::Errors::TableGetFailed(format!("Failed to deserialize table info: {}", e))
+        })?;
+
+        Ok(table_info)
     }
 
     pub async fn create_table(&self, table: &str) -> errors::Result<()> {
