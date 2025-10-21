@@ -30,6 +30,9 @@ service BarusService {
 
   // Flush WAL to disk
   rpc FlushWAL(FlushWALRequest) returns (FlushWALResponse);
+
+  // Get database status
+  rpc GetDBStatus(GetDBStatusRequest) returns (GetDBStatusResponse);
 }
 
 message GetRequest {
@@ -105,4 +108,11 @@ message GetTableRequest {
 
 message GetTableResponse {
   string table_name = 1;
+}
+
+message GetDBStatusRequest {}
+
+message GetDBStatusResponse {
+  uint64 memtable_size = 1;
+  uint64 table_count = 2;
 }
