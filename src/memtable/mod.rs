@@ -40,6 +40,14 @@ impl MemtableManager {
         }
     }
 
+    pub async fn load_table_list(&self, table_list: Vec<String>) -> errors::Result<()> {
+        for table in table_list {
+            self.create_table(&table).await?;
+        }
+
+        Ok(())
+    }
+
     pub async fn list_tables(&self) -> errors::Result<Vec<String>> {
         let memtable_map = self.memtable_map.read().await;
 
