@@ -44,7 +44,7 @@ async fn create_table(
     match db.create_table(&table).await {
         Ok(_) => Response::builder()
             .status(200)
-            .body(format!("Table '{}' created successfully", table).into())
+            .body(format!("Table '{}' created successfully", table))
             .unwrap(),
         Err(e) => {
             let error_message = format!("Error creating table '{}': {:?}", table, e);
