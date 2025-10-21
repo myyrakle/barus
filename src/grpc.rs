@@ -12,8 +12,8 @@ pub mod barus {
 use barus::barus_service_server::{BarusService, BarusServiceServer};
 use barus::{
     CreateTableRequest, CreateTableResponse, DeleteRequest, DeleteResponse, FlushWalRequest,
-    FlushWalResponse, GetRequest, GetResponse, HealthRequest, HealthResponse, PutRequest,
-    PutResponse,
+    FlushWalResponse, GetRequest, GetResponse, HealthRequest, HealthResponse,
+    ListTablesRequest, ListTablesResponse, PutRequest, PutResponse, TableInfo,
 };
 
 pub struct BarusGrpcService {
@@ -28,6 +28,26 @@ impl BarusGrpcService {
 
 #[tonic::async_trait]
 impl BarusService for BarusGrpcService {
+    async fn list_tables(
+        &self,
+        _request: Request<ListTablesRequest>,
+    ) -> Result<Response<ListTablesResponse>, Status> {
+        match self.db.list_tables().await {
+            Ok(result) => {
+                let tables = result
+                    .tables
+                    .into_iter()
+                    .map(|item| TableInfo {
+                        table_name: item.table_name,
+                    })
+                    .collect();
+
+                Ok(Response::new(ListTablesResponse { tables }))
+            }
+            Err(e) => Err(Status::internal(format!("Failed to list tables: {:?}", e))),
+        }
+    }
+
     async fn create_table(
         &self,
         request: Request<CreateTableRequest>,
