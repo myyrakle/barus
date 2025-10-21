@@ -55,11 +55,12 @@ async fn get_table(
 
             Response::builder()
                 .status(200)
+                .header("Content-Type", "application/json")
                 .body(serde_json::to_string(&response).unwrap())
                 .unwrap()
         }
         Err(err) => {
-            let error_message = format!("Error get table '{}': {:?}", table, err);
+            let error_message = format!("Error getting table '{}': {:?}", table, err);
             Response::builder().status(500).body(error_message).unwrap()
         }
     }
