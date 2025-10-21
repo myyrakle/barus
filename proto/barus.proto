@@ -4,6 +4,9 @@ package barus;
 
 // Barus Key-Value Store Service
 service BarusService {
+  // List all tables
+  rpc ListTables(ListTablesRequest) returns (ListTablesResponse);
+  
   // Create a new table
   rpc CreateTable(CreateTableRequest) returns (CreateTableResponse);
   
@@ -70,4 +73,14 @@ message CreateTableRequest {
 
 message CreateTableResponse {
   string message = 1;
+}
+
+message ListTablesRequest {}
+
+message ListTablesResponse {
+  repeated TableInfo tables = 1;
+}
+
+message TableInfo {
+  string table_name = 1;
 }

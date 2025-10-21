@@ -98,7 +98,7 @@ impl DBEngine {
 
     /// List all table names
     pub async fn list_tables(&self) -> errors::Result<ListTablesResponse> {
-        let table_names = self.disktable_manager.list_tables().await?;
+        let table_names = self.memtable_manager.list_tables().await?;
 
         let tables = table_names
             .into_iter()
