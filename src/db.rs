@@ -178,4 +178,10 @@ impl DBEngine {
 
         Ok(())
     }
+
+    pub async fn flush_wal(&self) -> errors::Result<()> {
+        self.wal_manager.lock().await.flush_wal().await?;
+
+        Ok(())
+    }
 }
