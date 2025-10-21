@@ -14,9 +14,9 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
 
     let app = Router::new()
         .route("/", get(root))
-        .route("/{table}/value", get(get_value))
-        .route("/{table}/value", put(put_value))
-        .route("/{table}/value", delete(delete_value))
+        .route("/tables/{table}/value", get(get_value))
+        .route("/tables/{table}/value", put(put_value))
+        .route("/tables/{table}/value", delete(delete_value))
         .route("/wal/flush", post(flush_wal))
         .layer(axum::extract::Extension(db_engine));
 
