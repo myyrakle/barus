@@ -60,10 +60,27 @@ impl MemtableManager {
     }
 
     pub async fn delete_table(&self, table: &str) -> errors::Result<()> {
-        let mut memtable_map = self.memtable_map.write().await;
+        // 1. Delete the table from the map
+        let delete_result = {
+            let mut memtable_map = self.memtable_map.write().await;
 
-        if memtable_map.contains_key(table) {
-            memtable_map.remove(table);
+            memtable_map.remove(table)
+        };
+
+        // 2. Decrement the current size
+        if let Some(deleted_table) = delete_result {
+            let reclaimed: u64 = deleted_table
+                .lock()
+                .await
+                .table
+                .values()
+                .filter_map(|e| e.value.as_ref().map(|v| v.len() as u64))
+                .sum();
+
+            if reclaimed > 0 {
+                self.memtable_current_size
+                    .fetch_sub(reclaimed, Ordering::SeqCst);
+            }
         }
 
         Ok(())
