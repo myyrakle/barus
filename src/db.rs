@@ -85,6 +85,12 @@ impl DBEngine {
             disktable_manager
         };
 
+        // 7. Load table list
+        {
+            let table_list = disktable_manager.list_tables().await?;
+            memtable_manager.load_table_list(table_list).await?;
+        }
+
         let manager = Self {
             system_info,
             base_path: base_path.clone(),
