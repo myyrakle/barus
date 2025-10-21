@@ -3,6 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::{
+    compaction::CompactionManager,
     disktable::{DiskTableManager, DisktableGetResult, table::TableInfo},
     errors,
     memtable::{MemtableGetResult, MemtableManager},
@@ -24,6 +25,7 @@ pub struct DBEngine {
     wal_manager: Arc<Mutex<WALManager>>,
     memtable_manager: Arc<MemtableManager>,
     disktable_manager: Arc<DiskTableManager>,
+    compaction_manager: Arc<CompactionManager>,
 }
 
 pub struct GetResponse {
@@ -71,7 +73,6 @@ impl DBEngine {
 
             wal_manager.initialize().await?;
             wal_manager.load().await?;
-            wal_manager.start_background()?;
 
             Arc::new(Mutex::new(wal_manager))
         };
@@ -96,15 +97,37 @@ impl DBEngine {
             memtable_manager.load_table_list(table_list).await?;
         }
 
+        // 8. compaction manager load
+        let compaction_manager = {
+            let compaction_manager = Arc::new(CompactionManager::new());
+
+            compaction_manager
+        };
+
         let manager = Self {
             system_info,
             base_path: base_path.clone(),
             wal_manager,
             memtable_manager,
             disktable_manager,
+            compaction_manager,
         };
 
+        manager.start_background().await?;
+
         Ok(manager)
+    }
+
+    async fn start_background(&self) -> errors::Result<()> {
+        {
+            self.wal_manager.lock().await.start_background()?;
+        }
+
+        {
+            self.compaction_manager.start_background()?;
+        }
+
+        Ok(())
     }
 
     pub async fn get_db_status(&self) -> errors::Result<DBStatusResponse> {

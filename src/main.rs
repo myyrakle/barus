@@ -1,3 +1,4 @@
+pub mod compaction;
 pub mod config;
 pub mod db;
 pub mod disktable;
