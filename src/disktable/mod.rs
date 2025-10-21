@@ -48,7 +48,10 @@ impl DiskTableManager {
             .join(format!("{}.json", table));
 
         if table_info_path.exists() {
-            return Ok(());
+            return Err(errors::Errors::TableAlreadyExists(format!(
+                "Table '{}' already exists",
+                table
+            )));
         }
 
         let table_info = table::TableInfo {

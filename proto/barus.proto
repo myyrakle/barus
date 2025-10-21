@@ -4,6 +4,9 @@ package barus;
 
 // Barus Key-Value Store Service
 service BarusService {
+  // Create a new table
+  rpc CreateTable(CreateTableRequest) returns (CreateTableResponse);
+  
   // Get a value by key
   rpc Get(GetRequest) returns (GetResponse);
   
@@ -58,5 +61,13 @@ message HealthResponse {
 message FlushWALRequest {}
 
 message FlushWALResponse {
+  string message = 1;
+}
+
+message CreateTableRequest {
+  string table = 1;
+}
+
+message CreateTableResponse {
   string message = 1;
 }

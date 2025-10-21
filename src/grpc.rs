@@ -11,8 +11,9 @@ pub mod barus {
 
 use barus::barus_service_server::{BarusService, BarusServiceServer};
 use barus::{
-    DeleteRequest, DeleteResponse, FlushWalRequest, FlushWalResponse, GetRequest, GetResponse,
-    HealthRequest, HealthResponse, PutRequest, PutResponse,
+    CreateTableRequest, CreateTableResponse, DeleteRequest, DeleteResponse, FlushWalRequest,
+    FlushWalResponse, GetRequest, GetResponse, HealthRequest, HealthResponse, PutRequest,
+    PutResponse,
 };
 
 pub struct BarusGrpcService {
@@ -27,6 +28,27 @@ impl BarusGrpcService {
 
 #[tonic::async_trait]
 impl BarusService for BarusGrpcService {
+    async fn create_table(
+        &self,
+        request: Request<CreateTableRequest>,
+    ) -> Result<Response<CreateTableResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.table.is_empty() {
+            return Err(Status::invalid_argument("table name cannot be empty"));
+        }
+
+        match self.db.create_table(&req.table).await {
+            Ok(_) => Ok(Response::new(CreateTableResponse {
+                message: format!("Table '{}' created successfully", req.table),
+            })),
+            Err(e) => Err(Status::internal(format!(
+                "Failed to create table '{}': {:?}",
+                req.table, e
+            ))),
+        }
+    }
+
     async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
         let req = request.into_inner();
 
