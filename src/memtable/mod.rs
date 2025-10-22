@@ -9,17 +9,19 @@ use std::{
 use tokio::sync::{Mutex, RwLock};
 
 use crate::{
+    compaction::MemtableFlushEvent,
     errors::{self, Errors},
     system::SystemInfo,
 };
 
 #[derive(Debug)]
 pub struct MemtableManager {
-    memtable_map: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
-    memtable_current_size: Arc<AtomicU64>,
+    pub(crate) memtable_map: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
+    pub(crate) memtable_current_size: Arc<AtomicU64>,
     #[allow(dead_code)]
     memtable_size_soft_limit: usize,
     memtable_size_hard_limit: usize,
+    memtable_flush_sender: tokio::sync::mpsc::Sender<MemtableFlushEvent>,
 }
 
 impl MemtableManager {
@@ -32,11 +34,14 @@ impl MemtableManager {
         let memtable_size_hard_limit =
             (total_memory as f64 * crate::config::MEMTABLE_SIZE_HARD_LIMIT_RATE) as usize;
 
+        let (fake_sender, _) = tokio::sync::mpsc::channel(1);
+
         Self {
             memtable_map: Arc::new(RwLock::new(HashMap::new())),
             memtable_current_size: Arc::new(AtomicU64::new(0)),
             memtable_size_soft_limit,
             memtable_size_hard_limit,
+            memtable_flush_sender: fake_sender,
         }
     }
 
@@ -103,25 +108,45 @@ impl MemtableManager {
     pub async fn put(&self, table: String, key: String, value: String) -> errors::Result<()> {
         let bytes = key.len() + value.len();
 
-        // 1. blocking until enough space is available
+        // 1. increment the current size, and check if it exceeds the hard limit
+        // send a flush event if it exceeds the hard limit
         loop {
-            let current = self.memtable_current_size.load(Ordering::SeqCst);
-            if current + (bytes as u64) <= self.memtable_size_hard_limit as u64 {
-                if self
-                    .memtable_current_size
-                    .compare_exchange(
-                        current,
-                        current + (bytes as u64),
-                        Ordering::SeqCst,
-                        Ordering::SeqCst,
-                    )
-                    .is_ok()
-                {
+            let current_memtable_size = self.memtable_current_size.load(Ordering::SeqCst);
+
+            let new_size_value = current_memtable_size + (bytes as u64);
+
+            if new_size_value > self.memtable_size_hard_limit as u64 {
+                let _ = self.memtable_flush_sender.try_send(MemtableFlushEvent {});
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                continue;
+            }
+
+            let cas_result = self.memtable_current_size.compare_exchange(
+                current_memtable_size,
+                new_size_value,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            );
+
+            match cas_result {
+                Ok(_) => {
+                    if new_size_value >= self.memtable_size_hard_limit as u64 {
+                        let _ = self.memtable_flush_sender.try_send(MemtableFlushEvent {});
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                        continue;
+                    }
+                    // CAS succeeded. Break the loop.
                     break;
                 }
-                // CAS 경쟁: 재시도
-            } else {
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                Err(new_size_value) => {
+                    if new_size_value >= self.memtable_size_hard_limit as u64 {
+                        let _ = self.memtable_flush_sender.try_send(MemtableFlushEvent {});
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                        continue;
+                    }
+                    // CAS failed. Retry the operation. (with sleep)
+                    continue;
+                }
             }
         }
 
