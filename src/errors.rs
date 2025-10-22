@@ -10,6 +10,7 @@ pub enum Errors {
     WALStateWriteError(String),
     WALSegmentIDParseError(String),
     WALSegmentFileOpenError(String),
+    TableSegmentIDParseError(String),
     TableNotFound(String),
     ValueNotFound(String),
     TableAlreadyExists(String),
@@ -38,6 +39,9 @@ impl std::fmt::Display for Errors {
             Errors::WALSegmentIDParseError(msg) => write!(f, "WAL Segment ID Parse Error: {}", msg),
             Errors::WALSegmentFileOpenError(msg) => {
                 write!(f, "WAL Segment File Open Error: {}", msg)
+            }
+            Errors::TableSegmentIDParseError(msg) => {
+                write!(f, "Table Segment ID Parse Error: {}", msg)
             }
             Errors::TableNotFound(msg) => write!(f, "Table Not Found: {}", msg),
             Errors::ValueNotFound(msg) => write!(f, "Value Not Found: {}", msg),

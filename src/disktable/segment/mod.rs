@@ -1,3 +1,4 @@
+pub mod id;
 pub mod record;
 
 #[derive(Debug, Clone)]
