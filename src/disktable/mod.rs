@@ -17,9 +17,9 @@ pub struct DiskTableManager {
 impl DiskTableManager {
     pub fn new(base_path: std::path::PathBuf) -> Self {
         Self {
-            base_path,
+            base_path: base_path.clone(),
             index_manager: index::IndexManager::new(),
-            segment_manager: segment::TableSegmentManager::new(),
+            segment_manager: segment::TableSegmentManager::new(base_path),
         }
     }
 
