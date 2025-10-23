@@ -12,7 +12,7 @@ use crate::{
     compaction::MemtableFlushEvent,
     errors::{self, Errors},
     system::SystemInfo,
-    wal::record::WALRecord,
+    wal::record::{RecordType, WALRecord},
 };
 
 #[derive(Debug)]
@@ -65,6 +65,26 @@ impl MemtableManager {
     }
 
     pub async fn load_wal_records(&self, records: Vec<WALRecord>) -> errors::Result<()> {
+        for record in records {
+            match record.record_type {
+                RecordType::Put => {
+                    let payload = record.data;
+
+                    self.put(
+                        payload.table,
+                        payload.key,
+                        payload.value.unwrap_or_default(),
+                    )
+                    .await?;
+                }
+                RecordType::Delete => {
+                    let payload = record.data;
+
+                    self.delete(payload.table, payload.key).await?;
+                }
+            }
+        }
+
         Ok(())
     }
 
