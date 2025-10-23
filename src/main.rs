@@ -19,9 +19,20 @@ use std::sync::Arc;
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+fn setup_logging() {
+    unsafe {
+        if std::env::var("RUST_LOG").is_err() {
+            std::env::set_var("RUST_LOG", "info");
+        }
+    }
+    env_logger::init();
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Initializing DB Engine...");
+    setup_logging();
+
+    log::info!("Initializing DB Engine...");
 
     // DB Engine 초기화 (한 번만)
     let db_engine = DBEngine::initialize("data".into()).await?;
