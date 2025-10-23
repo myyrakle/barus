@@ -190,6 +190,32 @@ impl WALManager {
         Ok(())
     }
 
+    // get total size of wal files
+    pub async fn total_size(&self) -> errors::Result<u64> {
+        let wal_dir = self.base_path.join(WAL_DIRECTORY);
+
+        let file_total_size: u64 = std::fs::read_dir(&wal_dir)
+            .map_err(|e| {
+                errors::Errors::WALSegmentFileOpenError(format!(
+                    "Failed to read WAL directory: {}",
+                    e
+                ))
+            })?
+            .filter_map(|entry| {
+                entry.ok().and_then(|e| {
+                    let path = e.path();
+                    if path.is_file() {
+                        Some(path.metadata().map(|m| m.len()).unwrap_or(0))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .sum();
+
+        Ok(file_total_size)
+    }
+
     // Append a new record to the WAL
     pub async fn append(&mut self, mut record: WALRecord) -> errors::Result<()> {
         // 1. Get Write Lock
