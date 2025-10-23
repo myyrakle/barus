@@ -10,6 +10,8 @@ pub enum Errors {
     WALStateWriteError(String),
     WALSegmentIDParseError(String),
     WALSegmentFileOpenError(String),
+    TableSegmentIDParseError(String),
+    TableSegmentFileCreateError(String),
     TableNotFound(String),
     ValueNotFound(String),
     TableAlreadyExists(String),
@@ -22,6 +24,7 @@ pub enum Errors {
     KeyIsEmpty,
     KeySizeTooLarge,
     ValueSizeTooLarge,
+    FileOpenError(String),
 }
 
 impl std::fmt::Display for Errors {
@@ -39,6 +42,12 @@ impl std::fmt::Display for Errors {
             Errors::WALSegmentFileOpenError(msg) => {
                 write!(f, "WAL Segment File Open Error: {}", msg)
             }
+            Errors::TableSegmentIDParseError(msg) => {
+                write!(f, "Table Segment ID Parse Error: {}", msg)
+            }
+            Errors::TableSegmentFileCreateError(msg) => {
+                write!(f, "Table Segment File Create Error: {}", msg)
+            }
             Errors::TableNotFound(msg) => write!(f, "Table Not Found: {}", msg),
             Errors::ValueNotFound(msg) => write!(f, "Value Not Found: {}", msg),
             Errors::TableAlreadyExists(msg) => write!(f, "Table Already Exists: {}", msg),
@@ -51,6 +60,7 @@ impl std::fmt::Display for Errors {
             Errors::KeySizeTooLarge => write!(f, "Key Size Too Large"),
             Errors::KeyIsEmpty => write!(f, "Key Is Empty"),
             Errors::ValueSizeTooLarge => write!(f, "Value Size Too Large"),
+            Errors::FileOpenError(msg) => write!(f, "File Open Error: {}", msg),
         }
     }
 }

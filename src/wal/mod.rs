@@ -4,6 +4,7 @@ use tokio::{fs::OpenOptions, sync::Mutex};
 use crate::{
     config::{WAL_DIRECTORY, WAL_RECORD_HEADER_SIZE, WAL_SEGMENT_SIZE, WAL_STATE_PATH},
     errors,
+    os::file_resize_and_set_zero,
     wal::{
         encode::WALRecordCodec,
         record::WALRecord,
@@ -328,102 +329,25 @@ impl WALManager {
 
         let new_segment_file_path = self.base_path.join(WAL_DIRECTORY).join(new_segment_id_str);
 
-        #[cfg(target_os = "linux")]
-        {
-            let file = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(&new_segment_file_path)
-                .await
-                .map_err(|e| {
-                    errors::Errors::WALSegmentFileOpenError(format!(
-                        "Failed to create new WAL segment file: {}",
-                        e
-                    ))
-                })?;
-
-            use std::os::fd::{AsFd, AsRawFd};
-
-            use crate::wal::segment::WALSegmentWriteHandle;
-
-            let fd = file.as_fd().as_raw_fd();
-            let result = unsafe {
-                libc::fallocate(
-                    fd,
-                    0, // flags = 0 은 공간만 할당 (초기화 안됨)
-                    0,
-                    WAL_SEGMENT_SIZE as i64,
-                )
-            };
-
-            if result != 0 {
-                return Err(errors::Errors::WALSegmentFileOpenError(format!(
-                    "Failed to allocate space for new WAL segment file: {}",
-                    std::io::Error::last_os_error()
-                )));
-            }
-
-            let result = unsafe {
-                libc::fallocate(
-                    fd,
-                    libc::FALLOC_FL_ZERO_RANGE, // 0으로 채우기
-                    0,
-                    WAL_SEGMENT_SIZE as i64,
-                )
-            };
-
-            if result != 0 {
-                return Err(errors::Errors::WALSegmentFileOpenError(format!(
-                    "Failed to zero-fill new WAL segment file: {}",
-                    std::io::Error::last_os_error()
-                )));
-            }
-
-            self.state.last_segment_file_offset = 0;
-
-            WALSegmentWriteHandle::new(file).await
-        }
-
-        #[cfg(not(target_os = "linux"))]
-        {
-            let mut file = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(&new_segment_file_path)
-                .await
-                .map_err(|e| {
-                    errors::Errors::WALSegmentFileOpenError(format!(
-                        "Failed to create new WAL segment file: {}",
-                        e
-                    ))
-                })?;
-
-            file.set_len(WAL_SEGMENT_SIZE as u64).await.map_err(|e| {
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&new_segment_file_path)
+            .await
+            .map_err(|e| {
                 errors::Errors::WALSegmentFileOpenError(format!(
-                    "Failed to set length for new WAL segment file: {}",
+                    "Failed to create new WAL segment file: {}",
                     e
                 ))
             })?;
 
-            file.write_all(&WAL_ZERO_CHUNK).await.map_err(|e| {
-                errors::Errors::WALSegmentFileOpenError(format!(
-                    "Failed to zero-fill new WAL segment file: {}",
-                    e
-                ))
-            })?;
+        file_resize_and_set_zero(&mut file, WAL_SEGMENT_SIZE as u64).await?;
 
-            file.seek(std::io::SeekFrom::Start(0))
-                .await
-                .map_err(|e| errors::Errors::WALSegmentFileOpenError(e.to_string()))?;
+        self.state.last_segment_file_offset = 0;
 
-            self.state.last_segment_file_offset = 0;
-
-            Ok(WALSegmentWriteHandle::new(file).await?)
-        }
+        WALSegmentWriteHandle::new(file).await
     }
 
     async fn save_state(&self) -> errors::Result<()> {

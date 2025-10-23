@@ -7,6 +7,7 @@ pub mod grpc;
 pub mod http;
 pub mod lock;
 pub mod memtable;
+pub mod os;
 pub mod system;
 pub mod validate;
 pub mod wal;
