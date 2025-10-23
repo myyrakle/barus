@@ -41,6 +41,7 @@ async fn root() -> &'static str {
 pub struct DBStatusResponse {
     pub table_count: usize,
     pub memtable_size: u64,
+    pub wal_total_size: u64,
 }
 
 async fn get_db_status(Extension(db): Extension<Arc<DBEngine>>) -> impl IntoResponse {
@@ -51,6 +52,7 @@ async fn get_db_status(Extension(db): Extension<Arc<DBEngine>>) -> impl IntoResp
             let response = DBStatusResponse {
                 table_count: status.table_count,
                 memtable_size: status.memtable_size,
+                wal_total_size: status.wal_total_size,
             };
 
             Response::builder()
