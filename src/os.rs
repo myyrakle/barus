@@ -7,24 +7,6 @@ pub async fn file_resize_and_set_zero(file: &mut File, size: u64) -> errors::Res
 
     let fd = file.as_fd().as_raw_fd();
 
-    // let result = unsafe {
-    //     libc::fallocate(
-    //         fd,
-    //         0, // flags = 0 은 공간만 할당 (초기화 안됨)
-    //         0,
-    //         size as i64,
-    //     )
-    // };
-
-    // if result != 0 {
-    //     use crate::errors;
-
-    //     return Err(errors::Errors::FileOpenError(format!(
-    //         "Failed to allocate space for new WAL segment file: {}",
-    //         std::io::Error::last_os_error()
-    //     )));
-    // }
-
     let result = unsafe {
         libc::fallocate(
             fd,
@@ -65,4 +47,29 @@ pub async fn file_resize_and_set_zero(file: &mut File, size: u64) -> Result<(), 
         .map_err(|e| errors::Errors::WALSegmentFileOpenError(e.to_string()))?;
 
     Ok(())
+}
+
+pub enum ShutdownType {
+    Immediate,
+    Graceful,
+}
+
+pub async fn handle_shutdown() {
+    use tokio::signal::unix;
+
+    let mut sigquit_signal = unix::signal(unix::SignalKind::quit()).unwrap();
+    let mut sigterm_signal = unix::signal(unix::SignalKind::terminate()).unwrap();
+    let mut sigint_signal = unix::signal(unix::SignalKind::interrupt()).unwrap();
+
+    tokio::select! {
+        _ = sigquit_signal.recv() => {
+            log::info!("Received SIGQUIT signal");
+        }
+        _ = sigterm_signal.recv() => {
+            log::info!("Received SIGTERM signal");
+        }
+        _ = sigint_signal.recv() => {
+            log::info!("Received SIGINT signal");
+        }
+    };
 }
