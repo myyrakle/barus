@@ -1,4 +1,4 @@
-use std::cmp::{self, Ordering};
+use std::cmp::Ordering;
 
 use memmap2::MmapMut;
 

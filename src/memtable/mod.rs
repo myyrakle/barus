@@ -151,12 +151,12 @@ impl MemtableManager {
             let new_size_value = current_memtable_size + (bytes as u64);
 
             if new_size_value > self.memtable_size_hard_limit as u64 {
-                if let Ok(_) = self.block_write.compare_exchange(
+                if self.block_write.compare_exchange(
                     false,
                     true,
                     Ordering::SeqCst,
                     Ordering::SeqCst,
-                ) {
+                ).is_ok() {
                     self.memtable_current_size.store(0, Ordering::SeqCst);
 
                     let mut memtable_map = self.memtable_map.write().await;
