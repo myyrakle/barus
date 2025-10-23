@@ -72,6 +72,4 @@ pub async fn handle_shutdown() {
             log::info!("Received SIGINT signal");
         }
     };
-
-    return;
 }
