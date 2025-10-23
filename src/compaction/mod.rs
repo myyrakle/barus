@@ -60,7 +60,7 @@ impl CompactionManager {
         tokio::spawn(async move {
             while let Some(_event) = memtable_flush_receiver.recv().await {
                 // Handle memtable flush event
-                println!("Memtable flush event received");
+                log::debug!("Memtable flush event received");
             }
         });
     }
