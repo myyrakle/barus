@@ -7,7 +7,7 @@ use axum::{
     routing::{delete, post, put},
 };
 
-use crate::{config::HTTP_PORT, db::DBEngine};
+use crate::{config::HTTP_PORT, db::DBEngine, errors::Errors};
 
 pub async fn run_server(db_engine: Arc<DBEngine>) {
     use axum::{Router, routing::get};
@@ -89,10 +89,28 @@ async fn get_table(
                 .body(serde_json::to_string(&response).unwrap())
                 .unwrap()
         }
-        Err(err) => {
-            let error_message = format!("Error getting table '{}': {:?}", table, err);
-            Response::builder().status(500).body(error_message).unwrap()
-        }
+        Err(err) => match err {
+            Errors::TableNotFound(_) => {
+                let error_message = format!("Table '{}' not found", table);
+                Response::builder().status(404).body(error_message).unwrap()
+            }
+            Errors::TableNameIsEmpty => {
+                let error_message = format!("Table name is empty");
+                Response::builder().status(400).body(error_message).unwrap()
+            }
+            Errors::TableNameTooLong => {
+                let error_message = format!("Table name is too long");
+                Response::builder().status(400).body(error_message).unwrap()
+            }
+            Errors::TableNameIsInvalid(_) => {
+                let error_message = format!("Table name is invalid");
+                Response::builder().status(400).body(error_message).unwrap()
+            }
+            _ => {
+                let error_message = format!("Error getting table '{}': {:?}", table, err);
+                Response::builder().status(500).body(error_message).unwrap()
+            }
+        },
     }
 }
 

@@ -207,6 +207,10 @@ impl DBEngine {
 
     /// get table information
     pub async fn get_table(&self, table: &str) -> errors::Result<TableInfo> {
+        // 1. Validation
+        validate_table_name(table)?;
+
+        // 2. Get table information from Disktable Manager
         let table_info = self.disktable_manager.get_table(table).await?;
 
         Ok(table_info)
