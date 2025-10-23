@@ -328,7 +328,7 @@ async fn put_value(
             .unwrap();
     };
 
-    let result = db.put_value(table, key, value).await;
+    let result = db.put_value(table.clone(), key, value).await;
 
     match result {
         Ok(_) => {
@@ -342,10 +342,40 @@ async fn put_value(
                 .body(serde_json::to_string(&response).unwrap())
                 .unwrap()
         }
-        Err(e) => {
-            let error_message = format!("Error storing key: {:?}", e);
-            Response::builder().status(500).body(error_message).unwrap()
-        }
+        Err(error) => match error {
+            Errors::TableNotFound(_) => {
+                let error_message = format!("Table '{}' not found", table);
+                Response::builder().status(404).body(error_message).unwrap()
+            }
+            Errors::TableNameIsEmpty => {
+                let error_message = format!("Table name is empty");
+                Response::builder().status(400).body(error_message).unwrap()
+            }
+            Errors::TableNameTooLong => {
+                let error_message = format!("Table name is too long");
+                Response::builder().status(400).body(error_message).unwrap()
+            }
+            Errors::TableNameIsInvalid(_) => {
+                let error_message = format!("Table name is invalid");
+                Response::builder().status(400).body(error_message).unwrap()
+            }
+            Errors::KeyIsEmpty => Response::builder()
+                .status(400)
+                .body("Key cannot be empty".into())
+                .unwrap(),
+            Errors::KeySizeTooLarge => Response::builder()
+                .status(400)
+                .body("Key size is too large".into())
+                .unwrap(),
+            Errors::ValueSizeTooLarge => Response::builder()
+                .status(400)
+                .body("Value size is too large".into())
+                .unwrap(),
+            _ => {
+                let error_message = format!("Error storing key: {:?}", error);
+                Response::builder().status(500).body(error_message).unwrap()
+            }
+        },
     }
 }
 
