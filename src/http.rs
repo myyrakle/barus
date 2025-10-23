@@ -95,15 +95,15 @@ async fn get_table(
                 Response::builder().status(404).body(error_message).unwrap()
             }
             Errors::TableNameIsEmpty => {
-                let error_message = format!("Table name is empty");
+                let error_message = "Table name is empty".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::TableNameTooLong => {
-                let error_message = format!("Table name is too long");
+                let error_message = "Table name is too long".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::TableNameIsInvalid(_) => {
-                let error_message = format!("Table name is invalid");
+                let error_message = "Table name is invalid".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             _ => {
@@ -167,15 +167,15 @@ async fn create_table(
             .unwrap(),
         Err(error) => match error {
             Errors::TableNameIsEmpty => {
-                let error_message = format!("Table name is empty");
+                let error_message = "Table name is empty".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::TableNameTooLong => {
-                let error_message = format!("Table name is too long");
+                let error_message = "Table name is too long".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::TableNameIsInvalid(_) => {
-                let error_message = format!("Table name is invalid");
+                let error_message = "Table name is invalid".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::TableAlreadyExists(_) => {
@@ -201,15 +201,15 @@ async fn delete_table(
             .unwrap(),
         Err(e) => match e {
             Errors::TableNameIsEmpty => {
-                let error_message = format!("Table name is empty");
+                let error_message = "Table name is empty".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::TableNameTooLong => {
-                let error_message = format!("Table name is too long");
+                let error_message = "Table name is too long".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::TableNameIsInvalid(_) => {
-                let error_message = format!("Table name is invalid");
+                let error_message = "Table name is invalid".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             _ => {
@@ -259,15 +259,15 @@ async fn get_value(
                 Response::builder().status(404).body(error_message).unwrap()
             }
             Errors::TableNameIsEmpty => {
-                let error_message = format!("Table name is empty");
+                let error_message = "Table name is empty".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::TableNameTooLong => {
-                let error_message = format!("Table name is too long");
+                let error_message = "Table name is too long".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::TableNameIsInvalid(_) => {
-                let error_message = format!("Table name is invalid");
+                let error_message = "Table name is invalid".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::KeyIsEmpty => Response::builder()
@@ -348,15 +348,15 @@ async fn put_value(
                 Response::builder().status(404).body(error_message).unwrap()
             }
             Errors::TableNameIsEmpty => {
-                let error_message = format!("Table name is empty");
+                let error_message = "Table name is empty".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::TableNameTooLong => {
-                let error_message = format!("Table name is too long");
+                let error_message = "Table name is too long".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::TableNameIsInvalid(_) => {
-                let error_message = format!("Table name is invalid");
+                let error_message = "Table name is invalid".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::KeyIsEmpty => Response::builder()
@@ -409,15 +409,15 @@ async fn delete_value(
                 Response::builder().status(404).body(error_message).unwrap()
             }
             Errors::TableNameIsEmpty => {
-                let error_message = format!("Table name is empty");
+                let error_message = "Table name is empty".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::TableNameTooLong => {
-                let error_message = format!("Table name is too long");
+                let error_message = "Table name is too long".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::TableNameIsInvalid(_) => {
-                let error_message = format!("Table name is invalid");
+                let error_message = "Table name is invalid".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
             Errors::KeyIsEmpty => Response::builder()
