@@ -18,6 +18,7 @@ use crate::{
 pub struct MemtableManager {
     pub(crate) memtable_map: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
     pub(crate) memtable_current_size: Arc<AtomicU64>,
+    pub(crate) flushing_memtable_map: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
     #[allow(dead_code)]
     memtable_size_soft_limit: usize,
     memtable_size_hard_limit: usize,
@@ -38,6 +39,7 @@ impl MemtableManager {
 
         Self {
             memtable_map: Arc::new(RwLock::new(HashMap::new())),
+            flushing_memtable_map: Arc::new(RwLock::new(HashMap::new())),
             memtable_current_size: Arc::new(AtomicU64::new(0)),
             memtable_size_soft_limit,
             memtable_size_hard_limit,
@@ -182,7 +184,24 @@ impl MemtableManager {
 
                 Ok(memtable_lock.get(key))
             }
-            None => Err(Errors::TableNotFound(format!("Table not found: {}", table))),
+            None => Ok(MemtableGetResult::NotFound),
+        }
+    }
+
+    pub async fn get_from_flushing(
+        &self,
+        table: &str,
+        key: &str,
+    ) -> errors::Result<MemtableGetResult> {
+        let memtable_map = self.flushing_memtable_map.read().await;
+
+        match memtable_map.get(table) {
+            Some(memtable) => {
+                let memtable_lock = memtable.lock().await;
+
+                Ok(memtable_lock.get(key))
+            }
+            None => Ok(MemtableGetResult::NotFound),
         }
     }
 

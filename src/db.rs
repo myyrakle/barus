@@ -210,7 +210,23 @@ impl DBEngine {
             MemtableGetResult::NotFound => {}
         }
 
-        // 3. Try to get from disk area (not implemented yet)
+        let memtable_result = self.memtable_manager.get_from_flushing(table, key).await?;
+
+        // 2.
+        match memtable_result {
+            MemtableGetResult::Deleted => {
+                return Err(errors::Errors::ValueNotFound(format!(
+                    "Key not found (deleted): {}",
+                    key
+                )));
+            }
+            MemtableGetResult::Found(value) => {
+                return Ok(GetResponse { value });
+            }
+            MemtableGetResult::NotFound => {}
+        }
+
+        // 4. Try to get from disk area (not implemented yet)
         {
             let disktable_result = self.disktable_manager.get(table, key).await?;
 
