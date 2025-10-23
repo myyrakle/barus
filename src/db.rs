@@ -247,7 +247,7 @@ impl DBEngine {
     }
 
     /// Gets the value for the given table and key.
-    pub async fn get(&self, table: &str, key: &str) -> errors::Result<GetResponse> {
+    pub async fn get_value(&self, table: &str, key: &str) -> errors::Result<GetResponse> {
         // 1. Validation
         validate_table_name(table)?;
         validate_key(key)?;
@@ -299,7 +299,7 @@ impl DBEngine {
     }
 
     /// Puts the given key-value pair into the specified table.
-    pub async fn put(&self, table: String, key: String, value: String) -> errors::Result<()> {
+    pub async fn put_value(&self, table: String, key: String, value: String) -> errors::Result<()> {
         // 1. Validation
         validate_table_name(&table)?;
         validate_key(&key)?;
@@ -329,7 +329,7 @@ impl DBEngine {
     }
 
     /// Deletes the given key from the specified table.
-    pub async fn delete(&self, table: String, key: String) -> errors::Result<()> {
+    pub async fn delete_value(&self, table: String, key: String) -> errors::Result<()> {
         // 1 Validation
         validate_table_name(&table)?;
         validate_key(&key)?;

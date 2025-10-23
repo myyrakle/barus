@@ -238,7 +238,7 @@ async fn get_value(
             .unwrap();
     };
 
-    let result = db.get(&table, key).await;
+    let result = db.get_value(&table, key).await;
 
     match result {
         Ok(res) => {
@@ -298,7 +298,7 @@ async fn put_value(
             .unwrap();
     };
 
-    let result = db.put(table, key, value).await;
+    let result = db.put_value(table, key, value).await;
 
     match result {
         Ok(_) => {
@@ -331,7 +331,7 @@ async fn delete_value(
             .unwrap();
     };
 
-    let result = db.delete(table, key).await;
+    let result = db.delete_value(table, key).await;
 
     match result {
         Ok(_) => {
