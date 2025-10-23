@@ -136,9 +136,10 @@ impl MemtableManager {
 
                     let mut memtable_map = self.memtable_map.write().await;
                     let mut flushing_memtable = self.flushing_memtable_map.write().await;
-                    std::mem::swap(&mut memtable_map, &mut flushing_memtable);
+                    std::mem::swap(&mut *memtable_map, &mut *flushing_memtable);
 
                     let _ = self.memtable_flush_sender.send(MemtableFlushEvent {}).await;
+                    self.block_write.store(true, Ordering::SeqCst);
                 }
 
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;

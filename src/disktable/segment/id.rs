@@ -8,7 +8,7 @@ impl std::ops::Add<u64> for TableSegmentID {
     type Output = TableSegmentID;
 
     fn add(self, rhs: u64) -> Self::Output {
-        TableSegmentID(self.0 + rhs)
+        TableSegmentID(self.0.saturating_add(rhs))
     }
 }
 
@@ -18,7 +18,7 @@ impl TableSegmentID {
     }
 
     pub fn increment(&mut self) {
-        self.0 += 1;
+        self.0 = self.0.saturating_add(1);
     }
 }
 
