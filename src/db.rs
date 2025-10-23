@@ -7,6 +7,7 @@ use crate::{
     disktable::{DiskTableManager, DisktableGetResult, table::TableInfo},
     errors,
     memtable::{MemtableGetResult, MemtableManager},
+    os::handle_shutdown,
     system::{SystemInfo, get_system_info},
     validate::{validate_key, validate_table_name, validate_value},
     wal::{
@@ -158,6 +159,23 @@ impl DBEngine {
 
         {
             self.compaction_manager.lock().await.start_background()?;
+        }
+
+        {
+            let wal_manager = self.wal_manager.clone();
+
+            tokio::spawn(async move {
+                handle_shutdown().await;
+                log::info!("Graceful shutdown started");
+
+                if let Err(error) = wal_manager.lock().await.flush_wal().await {
+                    log::error!("Failed to flush WAL: {}", error);
+                }
+                log::info!("WAL flushed");
+
+                log::info!("Graceful shutdown completed");
+                std::process::exit(0);
+            });
         }
 
         Ok(())

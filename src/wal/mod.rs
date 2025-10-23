@@ -285,6 +285,7 @@ impl WALManager {
 
         let mut offset = 0;
         while offset + WAL_RECORD_HEADER_SIZE <= bytes.len() {
+            println!("record len: {}", records.len());
             let header_bytes = &bytes[offset..offset + WAL_RECORD_HEADER_SIZE];
             let payload_size = u32::from_be_bytes(header_bytes.try_into().unwrap()) as usize;
 
@@ -300,6 +301,8 @@ impl WALManager {
 
             let payload_bytes = &bytes[offset..offset + payload_size];
 
+            println!("payload size: {}", payload_size);
+            println!("payload bytes: {:?}", payload_bytes);
             let record = self.codec.decode(payload_bytes)?;
 
             records.push(record);
