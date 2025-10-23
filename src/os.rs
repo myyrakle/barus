@@ -6,23 +6,24 @@ pub async fn file_resize_and_set_zero(file: &mut File, size: u64) -> errors::Res
     use std::os::fd::{AsFd, AsRawFd};
 
     let fd = file.as_fd().as_raw_fd();
-    let result = unsafe {
-        libc::fallocate(
-            fd,
-            0, // flags = 0 은 공간만 할당 (초기화 안됨)
-            0,
-            size as i64,
-        )
-    };
 
-    if result != 0 {
-        use crate::errors;
+    // let result = unsafe {
+    //     libc::fallocate(
+    //         fd,
+    //         0, // flags = 0 은 공간만 할당 (초기화 안됨)
+    //         0,
+    //         size as i64,
+    //     )
+    // };
 
-        return Err(errors::Errors::FileOpenError(format!(
-            "Failed to allocate space for new WAL segment file: {}",
-            std::io::Error::last_os_error()
-        )));
-    }
+    // if result != 0 {
+    //     use crate::errors;
+
+    //     return Err(errors::Errors::FileOpenError(format!(
+    //         "Failed to allocate space for new WAL segment file: {}",
+    //         std::io::Error::last_os_error()
+    //     )));
+    // }
 
     let result = unsafe {
         libc::fallocate(

@@ -70,7 +70,7 @@ impl WALManager {
             let segment_file_name: String = (&WALSegmentID::new(0u64)).into();
             let segment_file_path = wal_dir_path.join(segment_file_name);
 
-            let file = OpenOptions::new()
+            let mut file = OpenOptions::new()
                 .read(true)
                 .create(true)
                 .truncate(true)
@@ -84,12 +84,14 @@ impl WALManager {
                     ))
                 })?;
 
-            file.set_len(WAL_SEGMENT_SIZE as u64).await.map_err(|e| {
-                errors::Errors::WALSegmentFileOpenError(format!(
-                    "Failed to set length for initial WAL segment file: {}",
-                    e
-                ))
-            })?;
+            file_resize_and_set_zero(&mut file, WAL_SEGMENT_SIZE as u64)
+                .await
+                .map_err(|e| {
+                    errors::Errors::WALSegmentFileOpenError(format!(
+                        "Failed to set length for initial WAL segment file: {}",
+                        e
+                    ))
+                })?;
         }
 
         Ok(())
