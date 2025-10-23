@@ -191,7 +191,7 @@ impl WALManager {
     }
 
     // get total size of wal files
-    pub async fn total_size(&self) -> errors::Result<u64> {
+    pub async fn total_file_size(&self) -> errors::Result<u64> {
         let wal_dir = self.base_path.join(WAL_DIRECTORY);
 
         let file_total_size: u64 = std::fs::read_dir(&wal_dir)

@@ -45,6 +45,7 @@ pub struct ListTablesResponseItem {
 pub struct DBStatusResponse {
     pub memtable_size: u64,
     pub table_count: usize,
+    pub wal_total_size: u64,
 }
 
 impl DBEngine {
@@ -184,10 +185,12 @@ impl DBEngine {
     pub async fn get_db_status(&self) -> errors::Result<DBStatusResponse> {
         let table_count = self.disktable_manager.list_tables().await?.len();
         let memtable_size = self.memtable_manager.get_memtable_current_size()?;
+        let wal_total_size = self.wal_manager.lock().await.total_file_size().await?;
 
         let status = DBStatusResponse {
             table_count,
             memtable_size,
+            wal_total_size,
         };
 
         Ok(status)
