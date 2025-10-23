@@ -165,10 +165,28 @@ async fn create_table(
             .status(200)
             .body(format!("Table '{}' created successfully", table))
             .unwrap(),
-        Err(e) => {
-            let error_message = format!("Error creating table '{}': {:?}", table, e);
-            Response::builder().status(500).body(error_message).unwrap()
-        }
+        Err(error) => match error {
+            Errors::TableNameIsEmpty => {
+                let error_message = format!("Table name is empty");
+                Response::builder().status(400).body(error_message).unwrap()
+            }
+            Errors::TableNameTooLong => {
+                let error_message = format!("Table name is too long");
+                Response::builder().status(400).body(error_message).unwrap()
+            }
+            Errors::TableNameIsInvalid(_) => {
+                let error_message = format!("Table name is invalid");
+                Response::builder().status(400).body(error_message).unwrap()
+            }
+            Errors::TableAlreadyExists(_) => {
+                let error_message = format!("Table '{}' already exists", table);
+                Response::builder().status(409).body(error_message).unwrap()
+            }
+            _ => {
+                let error_message = format!("Error creating table '{}': {:?}", table, error);
+                Response::builder().status(500).body(error_message).unwrap()
+            }
+        },
     }
 }
 
