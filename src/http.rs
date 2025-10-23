@@ -391,7 +391,7 @@ async fn delete_value(
             .unwrap();
     };
 
-    let result = db.delete_value(table, key).await;
+    let result = db.delete_value(table.clone(), key).await;
 
     match result {
         Ok(_) => {
@@ -403,10 +403,36 @@ async fn delete_value(
                 .body(response)
                 .unwrap()
         }
-        Err(e) => {
-            let error_message = format!("Error deleting key: {:?}", e);
-            Response::builder().status(500).body(error_message).unwrap()
-        }
+        Err(error) => match error {
+            Errors::TableNotFound(_) => {
+                let error_message = format!("Table '{}' not found", table);
+                Response::builder().status(404).body(error_message).unwrap()
+            }
+            Errors::TableNameIsEmpty => {
+                let error_message = format!("Table name is empty");
+                Response::builder().status(400).body(error_message).unwrap()
+            }
+            Errors::TableNameTooLong => {
+                let error_message = format!("Table name is too long");
+                Response::builder().status(400).body(error_message).unwrap()
+            }
+            Errors::TableNameIsInvalid(_) => {
+                let error_message = format!("Table name is invalid");
+                Response::builder().status(400).body(error_message).unwrap()
+            }
+            Errors::KeyIsEmpty => Response::builder()
+                .status(400)
+                .body("Key cannot be empty".into())
+                .unwrap(),
+            Errors::KeySizeTooLarge => Response::builder()
+                .status(400)
+                .body("Key size is too large".into())
+                .unwrap(),
+            _ => {
+                let error_message = format!("Error deleting key: {:?}", error);
+                Response::builder().status(500).body(error_message).unwrap()
+            }
+        },
     }
 }
 
