@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
@@ -19,6 +19,7 @@ pub struct MemtableManager {
     pub(crate) memtable_map: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
     pub(crate) memtable_current_size: Arc<AtomicU64>,
     pub(crate) flushing_memtable_map: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
+    pub(crate) block_write: Arc<AtomicBool>,
     #[allow(dead_code)]
     memtable_size_soft_limit: usize,
     memtable_size_hard_limit: usize,
@@ -41,6 +42,7 @@ impl MemtableManager {
             memtable_map: Arc::new(RwLock::new(HashMap::new())),
             flushing_memtable_map: Arc::new(RwLock::new(HashMap::new())),
             memtable_current_size: Arc::new(AtomicU64::new(0)),
+            block_write: Arc::new(AtomicBool::new(false)),
             memtable_size_soft_limit,
             memtable_size_hard_limit,
             memtable_flush_sender: fake_sender,
@@ -113,12 +115,32 @@ impl MemtableManager {
         // 1. increment the current size, and check if it exceeds the hard limit
         // send a flush event if it exceeds the hard limit
         loop {
+            let is_blocked = self.block_write.load(Ordering::Relaxed);
+            if is_blocked {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                continue;
+            }
+
             let current_memtable_size = self.memtable_current_size.load(Ordering::SeqCst);
 
             let new_size_value = current_memtable_size + (bytes as u64);
 
             if new_size_value > self.memtable_size_hard_limit as u64 {
-                let _ = self.memtable_flush_sender.try_send(MemtableFlushEvent {});
+                if let Ok(_) = self.block_write.compare_exchange(
+                    false,
+                    true,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                ) {
+                    self.memtable_current_size.store(0, Ordering::SeqCst);
+
+                    let mut memtable_map = self.memtable_map.write().await;
+                    let mut flushing_memtable = self.flushing_memtable_map.write().await;
+                    std::mem::swap(&mut memtable_map, &mut flushing_memtable);
+
+                    let _ = self.memtable_flush_sender.send(MemtableFlushEvent {}).await;
+                }
+
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 continue;
             }
@@ -132,21 +154,11 @@ impl MemtableManager {
 
             match cas_result {
                 Ok(_) => {
-                    if new_size_value >= self.memtable_size_hard_limit as u64 {
-                        let _ = self.memtable_flush_sender.try_send(MemtableFlushEvent {});
-                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                        continue;
-                    }
                     // CAS succeeded. Break the loop.
                     break;
                 }
-                Err(new_size_value) => {
-                    if new_size_value >= self.memtable_size_hard_limit as u64 {
-                        let _ = self.memtable_flush_sender.try_send(MemtableFlushEvent {});
-                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-                        continue;
-                    }
-                    // CAS failed. Retry the operation. (with sleep)
+                Err(_) => {
+                    // CAS failed. Retry the operation.)
                     continue;
                 }
             }
@@ -206,6 +218,19 @@ impl MemtableManager {
     }
 
     pub async fn delete(&self, table: String, key: String) -> errors::Result<()> {
+        // 1. check if the write is blocked
+        loop {
+            let is_blocked = self.block_write.load(Ordering::Relaxed);
+
+            if is_blocked {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                continue;
+            }
+
+            break;
+        }
+
+        // 2. check if the memtable exists
         let memtable_map = self.memtable_map.read().await;
 
         match memtable_map.get(&table) {
