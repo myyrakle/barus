@@ -217,7 +217,7 @@ impl BarusService for BarusGrpcService {
 pub async fn run_grpc_server(db_engine: Arc<DBEngine>) -> Result<(), Box<dyn std::error::Error>> {
     let addr = format!("0.0.0.0:{}", *GRPC_PORT).parse()?;
 
-    println!("gRPC Server is running on {}", addr);
+    log::info!("gRPC Server is running on {}", addr);
 
     let service = BarusGrpcService::new(db_engine);
 

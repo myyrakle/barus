@@ -27,7 +27,7 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
 
     let addr = format!("0.0.0.0:{}", *HTTP_PORT);
 
-    println!("HTTP Server is running on {}", addr);
+    log::info!("HTTP Server is running on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

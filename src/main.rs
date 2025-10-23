@@ -19,9 +19,20 @@ use std::sync::Arc;
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+fn setup_logging() {
+    unsafe {
+        if std::env::var("RUST_LOG").is_err() {
+            std::env::set_var("RUST_LOG", "info");
+        }
+    }
+    env_logger::init();
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Initializing DB Engine...");
+    setup_logging();
+
+    log::info!("Initializing DB Engine...");
 
     // DB Engine 초기화 (한 번만)
     let db_engine = DBEngine::initialize("data".into()).await?;
@@ -29,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Arc로 감싸서 여러 서버가 공유
     let shared_db = Arc::new(db_engine);
 
-    println!("Starting servers...");
+    log::info!("Starting servers...");
 
     // HTTP 서버와 gRPC 서버를 동시에 실행
     let http_db = shared_db.clone();
@@ -46,8 +57,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 둘 중 하나라도 종료되면 프로그램 종료
     tokio::select! {
-        _ = http_server => println!("HTTP server stopped"),
-        _ = grpc_server => println!("gRPC server stopped"),
+        _ = http_server => log::info!("HTTP server stopped"),
+        _ = grpc_server => log::info!("gRPC server stopped"),
     }
 
     Ok(())

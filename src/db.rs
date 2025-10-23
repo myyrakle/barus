@@ -52,8 +52,11 @@ impl DBEngine {
         // 1. Load System Info
         let system_info = get_system_info();
 
+        log::info!("System Info Loaded: {:?}", system_info);
+
         // 2. Initialize the database directory
         // Create DB directory if not exists
+        log::info!("Initializing database directory...");
         std::fs::create_dir_all(&base_path).or_else(|e| {
             if e.kind() == std::io::ErrorKind::AlreadyExists {
                 Ok(())
@@ -65,9 +68,8 @@ impl DBEngine {
             }
         })?;
 
-        // 3. TODO: Global Setting Init
-
-        // 4. Initialize and load the WAL manager
+        // 3. Initialize and load the WAL manager
+        log::info!("Initializing WAL manager...");
         let wal_manager = {
             let mut wal_manager =
                 WALManager::new(Box::new(WALRecordBincodeCodec {}), base_path.clone());
@@ -78,12 +80,12 @@ impl DBEngine {
             Arc::new(Mutex::new(wal_manager))
         };
 
-        // 5. Memtable Load
+        // 4. Memtable Load
+        log::info!("Initializing memtable manager...");
         let mut memtable_manager = MemtableManager::new(&system_info);
 
-        // TODO: Basic Table Setting Init
-
-        // 6. Disktable Load
+        // 5. Disktable Load
+        log::info!("Initializing disktable manager...");
         let disktable_manager = {
             let disktable_manager = Arc::new(DiskTableManager::new(base_path.clone()));
 
@@ -92,17 +94,20 @@ impl DBEngine {
             disktable_manager
         };
 
-        // 7. compaction manager load
+        // 6. compaction manager load
+        log::info!("Initializing compaction manager...");
         let compaction_manager =
             CompactionManager::new(&mut memtable_manager, disktable_manager.clone());
 
-        // 8. Load table list
+        // 7. Load table list
+        log::info!("Loading table list...");
         {
             let table_list = disktable_manager.list_tables().await?;
             memtable_manager.load_table_list(table_list).await?;
         }
 
-        // 9. Load WAL Records
+        // 8. Load WAL Records
+        log::info!("WAL Records Loading...");
         {
             let wal_manager = wal_manager.lock().await;
             let segment_files = wal_manager.list_segment_files().await?;
@@ -138,7 +143,10 @@ impl DBEngine {
             compaction_manager: Arc::new(Mutex::new(compaction_manager)),
         };
 
+        log::info!("Starting Background Workers...");
         manager.start_background().await?;
+
+        log::info!("DB Engine Initialized");
 
         Ok(manager)
     }
