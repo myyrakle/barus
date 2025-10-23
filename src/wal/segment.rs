@@ -1,10 +1,24 @@
+use std::cmp::{self, Ordering};
+
 use memmap2::MmapMut;
 
 use crate::errors;
 
 // 16 length hex ID (ex 0000000D000000EA)
-#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct WALSegmentID(u64);
+
+impl Ord for WALSegmentID {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
+impl PartialOrd for WALSegmentID {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 impl std::ops::Add<u64> for WALSegmentID {
     type Output = WALSegmentID;

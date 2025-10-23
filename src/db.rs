@@ -13,6 +13,7 @@ use crate::{
         self, WALManager,
         encode::WALRecordBincodeCodec,
         record::{WALPayload, WALRecord},
+        segment::WALSegmentID,
     },
 };
 
@@ -99,6 +100,33 @@ impl DBEngine {
         {
             let table_list = disktable_manager.list_tables().await?;
             memtable_manager.load_table_list(table_list).await?;
+        }
+
+        // 9. Load WAL Records
+        {
+            let wal_manager = wal_manager.lock().await;
+            let segment_files = wal_manager.list_segment_files().await?;
+
+            let last_checkpoint_segment = wal_manager.state.last_checkpoint_segment_id.clone();
+            let last_checkpoint_record_id = wal_manager.state.last_checkpoint_record_id;
+
+            for segment_file in segment_files {
+                let current_segment_id = WALSegmentID::try_from(segment_file.as_str())
+                    .expect("Failed to parse WAL segment ID");
+
+                if current_segment_id < last_checkpoint_segment {
+                    continue;
+                }
+
+                let (records, _) = wal_manager.scan_records(segment_file.as_str()).await?;
+
+                let filtered_records = records
+                    .into_iter()
+                    .filter(|record| record.record_id > last_checkpoint_record_id)
+                    .collect();
+
+                memtable_manager.load_wal_records(filtered_records).await?;
+            }
         }
 
         let mut manager = Self {

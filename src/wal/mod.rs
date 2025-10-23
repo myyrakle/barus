@@ -24,7 +24,7 @@ pub static WAL_ZERO_CHUNK: [u8; WAL_SEGMENT_SIZE] = [0u8; WAL_SEGMENT_SIZE];
 pub struct WALManager {
     codec: Box<dyn WALRecordCodec + Send + Sync>,
     base_path: PathBuf,
-    state: WALGlobalState,
+    pub(crate) state: WALGlobalState,
     background_fsync_duration: Option<std::time::Duration>,
     wal_write_handles: Arc<Mutex<WALSegmentWriteHandle>>,
     wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,

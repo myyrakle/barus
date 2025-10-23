@@ -12,6 +12,7 @@ use crate::{
     compaction::MemtableFlushEvent,
     errors::{self, Errors},
     system::SystemInfo,
+    wal::record::WALRecord,
 };
 
 #[derive(Debug)]
@@ -60,6 +61,10 @@ impl MemtableManager {
             self.create_table(&table).await?;
         }
 
+        Ok(())
+    }
+
+    pub async fn load_wal_records(&self, records: Vec<WALRecord>) -> errors::Result<()> {
         Ok(())
     }
 
