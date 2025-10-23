@@ -123,7 +123,7 @@ impl BarusService for BarusGrpcService {
             return Err(Status::invalid_argument("key cannot be empty"));
         }
 
-        match self.db.get(&req.table, &req.key).await {
+        match self.db.get_value(&req.table, &req.key).await {
             Ok(result) => {
                 let value = result.value;
                 Ok(Response::new(GetResponse {
@@ -146,7 +146,7 @@ impl BarusService for BarusGrpcService {
             return Err(Status::invalid_argument("key cannot be empty"));
         }
 
-        match self.db.put(req.table, req.key, req.value).await {
+        match self.db.put_value(req.table, req.key, req.value).await {
             Ok(_) => Ok(Response::new(PutResponse {
                 message: "Stored".to_string(),
             })),
@@ -168,7 +168,7 @@ impl BarusService for BarusGrpcService {
             return Err(Status::invalid_argument("key cannot be empty"));
         }
 
-        match self.db.delete(req.table, req.key).await {
+        match self.db.delete_value(req.table, req.key).await {
             Ok(_) => Ok(Response::new(DeleteResponse {
                 message: "Deleted".to_string(),
             })),
