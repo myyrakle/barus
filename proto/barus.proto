@@ -33,6 +33,9 @@ service BarusService {
 
   // Get database status
   rpc GetDBStatus(GetDBStatusRequest) returns (GetDBStatusResponse);
+
+  // Flush memtable to disk
+  rpc FlushMemtable(FlushMemtableRequest) returns (FlushMemtableResponse);
 }
 
 message GetRequest {
@@ -115,4 +118,10 @@ message GetDBStatusRequest {}
 message GetDBStatusResponse {
   uint64 memtable_size = 1;
   uint64 table_count = 2;
+}
+
+message FlushMemtableRequest {}
+
+message FlushMemtableResponse {
+  string message = 1;
 }
