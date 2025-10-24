@@ -1,30 +1,23 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, atomic::AtomicU64},
-};
+use std::{collections::HashMap, sync::Arc};
 
-use tokio::sync::{
-    Mutex, RwLock,
-    mpsc::{Receiver, Sender},
-};
+use tokio::sync::{Mutex, mpsc::Receiver};
 
 use crate::{
     disktable::DiskTableManager,
     errors,
     memtable::{HashMemtable, MemtableManager},
+    wal::state::WALGlobalState,
 };
 
 #[derive(Default)]
-pub struct MemtableFlushEvent;
+pub struct MemtableFlushEvent {
+    pub memtable: HashMap<String, Arc<Mutex<HashMemtable>>>,
+    pub wal_state: WALGlobalState,
+}
 
 #[derive(Debug)]
 pub struct CompactionManager {
     memtable_flush_receiver: Receiver<MemtableFlushEvent>,
-    memtable_flush_sender: Sender<MemtableFlushEvent>,
-
-    // borrowed from memtable manager
-    memtable_map: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
-    memtable_current_size: Arc<AtomicU64>,
 
     // borrowed from disktable manager
     disktable_manager: Arc<DiskTableManager>,
@@ -32,16 +25,13 @@ pub struct CompactionManager {
 
 impl CompactionManager {
     pub fn new(
-        memtable_manager: &mut MemtableManager,
+        _memtable_manager: &mut MemtableManager,
         disktable_manager: Arc<DiskTableManager>,
     ) -> Self {
-        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        let (_, receiver) = tokio::sync::mpsc::channel(1);
 
         CompactionManager {
             memtable_flush_receiver: receiver,
-            memtable_flush_sender: sender,
-            memtable_map: memtable_manager.memtable_map.clone(),
-            memtable_current_size: memtable_manager.memtable_current_size.clone(),
             disktable_manager: disktable_manager.clone(),
         }
     }
@@ -57,10 +47,19 @@ impl CompactionManager {
         let mut memtable_flush_receiver =
             std::mem::replace(&mut self.memtable_flush_receiver, fake_receiver);
 
+        let disk_manager = self.disktable_manager.clone();
+
         tokio::spawn(async move {
-            while let Some(_event) = memtable_flush_receiver.recv().await {
+            while let Some(event) = memtable_flush_receiver.recv().await {
                 // Handle memtable flush event
-                log::debug!("Memtable flush event received");
+                log::info!("Memtable flush event received");
+
+                if let Err(error) = disk_manager
+                    .write_memtable(event.memtable, event.wal_state)
+                    .await
+                {
+                    log::error!("Failed to write memtable: {}", error);
+                }
             }
         });
     }

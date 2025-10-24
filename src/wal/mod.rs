@@ -24,7 +24,7 @@ pub static WAL_ZERO_CHUNK: [u8; WAL_SEGMENT_SIZE] = [0u8; WAL_SEGMENT_SIZE];
 pub struct WALManager {
     codec: Box<dyn WALRecordCodec + Send + Sync>,
     base_path: PathBuf,
-    pub(crate) state: WALGlobalState,
+    pub(crate) state: Arc<Mutex<WALGlobalState>>,
     background_fsync_duration: Option<std::time::Duration>,
     wal_write_handles: Arc<Mutex<WALSegmentWriteHandle>>,
     wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
@@ -35,7 +35,7 @@ impl WALManager {
         Self {
             codec,
             base_path,
-            state: Default::default(),
+            state: Arc::new(Mutex::new(Default::default())),
             wal_write_handles: Arc::new(Mutex::new(WALSegmentWriteHandle::empty())),
             wal_state_write_handles: Arc::new(Mutex::new(WALStateWriteHandles {
                 state_file: None,
@@ -100,17 +100,24 @@ impl WALManager {
     // Load WAL states from the state file
     pub async fn load(&mut self) -> errors::Result<()> {
         // Load the WAL global state from the state file
-        self.state = WALGlobalState::load(&self.base_path).await?;
+
+        self.state = Arc::new(Mutex::new(WALGlobalState::load(&self.base_path).await?));
+
         {
-            self.wal_state_write_handles.lock().await.state_file =
-                Some(self.state.get_file_handle(&self.base_path).await?);
+            self.wal_state_write_handles.lock().await.state_file = Some(
+                self.state
+                    .lock()
+                    .await
+                    .get_file_handle(&self.base_path)
+                    .await?,
+            );
         }
 
         // last_record_id & last_segment_file_offset by scanning the last segment file
-        self.do_recover().await?;
+        self.recover_state().await?;
 
         // Load file stream for the current segment
-        let segment_file_name = self.get_current_segment_file_name()?;
+        let segment_file_name = self.get_current_segment_file_name().await?;
         let segment_file_path = self.base_path.join(WAL_DIRECTORY).join(segment_file_name);
 
         let file = OpenOptions::new()
@@ -130,7 +137,7 @@ impl WALManager {
         Ok(())
     }
 
-    async fn do_recover(&mut self) -> errors::Result<()> {
+    async fn recover_state(&mut self) -> errors::Result<()> {
         let segment_files = self.list_segment_files().await?;
 
         if segment_files.is_empty() {
@@ -140,13 +147,21 @@ impl WALManager {
         if let Some(last_segment_file) = segment_files.last() {
             let (records, offset) = self.scan_records(last_segment_file).await?;
 
-            self.state.last_segment_file_offset = offset;
+            let mut state = self.state.lock().await;
+
+            state.last_segment_file_offset = offset;
 
             if let Some(last_record) = records.last() {
-                self.state.last_record_id = last_record.record_id;
+                state.last_record_id = last_record.record_id;
             }
 
-            self.save_state().await?;
+            let mut state_handles = self.wal_state_write_handles.lock().await;
+
+            let file = state_handles.state_file.as_mut().ok_or_else(|| {
+                errors::Errors::WALStateWriteError("WAL state file is not opened".to_string())
+            })?;
+
+            state.save(file).await?;
         }
 
         Ok(())
@@ -229,18 +244,20 @@ impl WALManager {
             ));
         }
 
+        let wal_state = self.state.lock().await.clone();
+
         // 2. Check if need to new segment file.
         // If current segment file size + new record size > WAL_SEGMENT_SIZE, create new segment file
-        let current_segment_size = self.state.last_segment_file_offset;
+        let current_segment_size = wal_state.last_segment_file_offset;
 
         if current_segment_size + record.size() > WAL_SEGMENT_SIZE {
             *write_state = self.new_segment_file().await?;
         }
 
         // 3. Serialize the record and write (zero copy)
-        let payload_start_offset = self.state.last_segment_file_offset + WAL_RECORD_HEADER_SIZE;
+        let payload_start_offset = wal_state.last_segment_file_offset + WAL_RECORD_HEADER_SIZE;
 
-        let new_record_id = self.state.last_record_id + 1;
+        let new_record_id = wal_state.last_record_id + 1;
         record.record_id = new_record_id;
 
         let payload_size = self
@@ -248,16 +265,20 @@ impl WALManager {
             .encode(&record, &mut write_state.mmap[payload_start_offset..])?;
 
         // 4. Set the header value
-        let header_start_offset = self.state.last_segment_file_offset;
-        let header_end_offset = self.state.last_segment_file_offset + WAL_RECORD_HEADER_SIZE;
+        let header_start_offset = wal_state.last_segment_file_offset;
+        let header_end_offset = wal_state.last_segment_file_offset + WAL_RECORD_HEADER_SIZE;
 
         let header = (payload_size as u32).to_be_bytes();
         write_state.mmap[header_start_offset..header_end_offset].copy_from_slice(&header);
 
         let total_bytes = payload_size + WAL_RECORD_HEADER_SIZE;
 
-        self.state.last_record_id = new_record_id;
-        self.state.last_segment_file_offset += total_bytes;
+        {
+            let mut wal_state = self.state.lock().await;
+
+            wal_state.last_record_id = new_record_id;
+            wal_state.last_segment_file_offset += total_bytes;
+        }
 
         Ok(())
     }
@@ -336,24 +357,28 @@ impl WALManager {
     }
 
     // Move the checkpoint to the specified segment and record ID
-    pub async fn move_checkpoint(&mut self, segment_id: u64, record_id: u64) -> errors::Result<()> {
-        self.state.last_checkpoint_segment_id = WALSegmentID::new(segment_id);
-        self.state.last_checkpoint_record_id = record_id;
-        self.save_state().await?;
+    // pub async fn move_checkpoint(&mut self, segment_id: u64, record_id: u64) -> errors::Result<()> {
+    //     self.state.last_checkpoint_segment_id = WALSegmentID::new(segment_id);
+    //     self.state.last_checkpoint_record_id = record_id;
+    //     self.save_state().await?;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
-    fn get_current_segment_file_name(&self) -> errors::Result<String> {
-        let segment_id_str: String = (&self.state.last_segment_id).into();
+    async fn get_current_segment_file_name(&self) -> errors::Result<String> {
+        let segment_id_str: String = (&self.state.lock().await.last_segment_id).into();
         Ok(segment_id_str)
     }
 
     async fn new_segment_file(&mut self) -> errors::Result<WALSegmentWriteHandle> {
-        self.state.last_segment_id.increment();
+        let new_segment_id = {
+            let mut state = self.state.lock().await;
+            state.last_segment_id.increment();
 
-        let new_segment_id = &self.state.last_segment_id;
-        let new_segment_id_str: String = new_segment_id.into();
+            state.last_segment_id.clone()
+        };
+
+        let new_segment_id_str: String = (&new_segment_id).into();
 
         let new_segment_file_path = self.base_path.join(WAL_DIRECTORY).join(new_segment_id_str);
 
@@ -373,19 +398,12 @@ impl WALManager {
 
         file_resize_and_set_zero(&mut file, WAL_SEGMENT_SIZE as u64).await?;
 
-        self.state.last_segment_file_offset = 0;
+        {
+            let mut state = self.state.lock().await;
+            state.last_segment_file_offset = 0;
+        }
 
         WALSegmentWriteHandle::new(file).await
-    }
-
-    async fn save_state(&self) -> errors::Result<()> {
-        let mut state_handles = self.wal_state_write_handles.lock().await;
-
-        let file = state_handles.state_file.as_mut().ok_or_else(|| {
-            errors::Errors::WALStateWriteError("WAL state file is not opened".to_string())
-        })?;
-
-        self.state.save(file).await
     }
 }
 

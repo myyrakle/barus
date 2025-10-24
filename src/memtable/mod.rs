@@ -12,7 +12,11 @@ use crate::{
     compaction::MemtableFlushEvent,
     errors::{self, Errors},
     system::SystemInfo,
-    wal::record::{RecordType, WALRecord},
+    wal::{
+        WALManager,
+        record::{RecordType, WALRecord},
+        state::WALGlobalState,
+    },
 };
 
 #[derive(Debug)]
@@ -25,10 +29,13 @@ pub struct MemtableManager {
     memtable_size_soft_limit: usize,
     memtable_size_hard_limit: usize,
     memtable_flush_sender: tokio::sync::mpsc::Sender<MemtableFlushEvent>,
+
+    // borrowed from WALManager
+    pub(crate) wal_state: Arc<Mutex<WALGlobalState>>,
 }
 
 impl MemtableManager {
-    pub fn new(system_info: &SystemInfo) -> Self {
+    pub fn new(system_info: &SystemInfo, wal_manager: &WALManager) -> Self {
         let total_memory = system_info.total_memory;
 
         let memtable_size_soft_limit =
@@ -47,6 +54,7 @@ impl MemtableManager {
             memtable_size_soft_limit,
             memtable_size_hard_limit,
             memtable_flush_sender: fake_sender,
+            wal_state: wal_manager.state.clone(),
         }
     }
 
@@ -142,11 +150,23 @@ impl MemtableManager {
         {
             self.memtable_current_size.store(0, Ordering::SeqCst);
 
-            let mut memtable_map = self.memtable_map.write().await;
-            let mut flushing_memtable = self.flushing_memtable_map.write().await;
-            std::mem::swap(&mut *memtable_map, &mut *flushing_memtable);
+            let wal_state = self.wal_state.lock().await.clone();
+            {
+                let mut memtable_map = self.memtable_map.write().await;
+                let mut flushing_memtable = self.flushing_memtable_map.write().await;
+                std::mem::swap(&mut *memtable_map, &mut *flushing_memtable);
+            }
 
-            let _ = self.memtable_flush_sender.send(MemtableFlushEvent {}).await;
+            let mut flushing_memtable = self.flushing_memtable_map.write().await;
+            let flushing_memtable = std::mem::take(&mut *flushing_memtable);
+
+            let _ = self
+                .memtable_flush_sender
+                .send(MemtableFlushEvent {
+                    memtable: flushing_memtable,
+                    wal_state,
+                })
+                .await;
             self.block_write.store(true, Ordering::SeqCst);
         } else {
             return Err(errors::Errors::MemtableFlushAlreadyInProgress);

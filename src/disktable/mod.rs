@@ -1,4 +1,11 @@
-use crate::{config::TABLES_DIRECTORY, disktable::table::TableInfo, errors};
+use std::{collections::HashMap, sync::Arc};
+
+use tokio::sync::Mutex;
+
+use crate::{
+    config::TABLES_DIRECTORY, disktable::table::TableInfo, errors, memtable::HashMemtable,
+    wal::state::WALGlobalState,
+};
 
 pub mod index;
 pub mod segment;
@@ -175,6 +182,14 @@ impl DiskTableManager {
 
     pub async fn delete(&self, _table: String, _key: String) -> errors::Result<()> {
         Ok(())
+    }
+
+    pub async fn write_memtable(
+        &self,
+        _memtable: HashMap<String, Arc<Mutex<HashMemtable>>>,
+        _wal_state: WALGlobalState,
+    ) -> errors::Result<()> {
+        unimplemented!();
     }
 }
 

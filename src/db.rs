@@ -79,12 +79,12 @@ impl DBEngine {
             wal_manager.initialize().await?;
             wal_manager.load().await?;
 
-            Arc::new(Mutex::new(wal_manager))
+            wal_manager
         };
 
         // 4. Memtable Load
         log::info!("Initializing memtable manager...");
-        let mut memtable_manager = MemtableManager::new(&system_info);
+        let mut memtable_manager = MemtableManager::new(&system_info, &wal_manager);
 
         // 5. Disktable Load
         log::info!("Initializing disktable manager...");
@@ -111,11 +111,15 @@ impl DBEngine {
         // 8. Load WAL Records
         log::info!("WAL Records Loading...");
         {
-            let wal_manager = wal_manager.lock().await;
             let segment_files = wal_manager.list_segment_files().await?;
 
-            let last_checkpoint_segment = wal_manager.state.last_checkpoint_segment_id.clone();
-            let last_checkpoint_record_id = wal_manager.state.last_checkpoint_record_id;
+            let state = {
+                let state = wal_manager.state.lock().await.clone();
+                state
+            };
+
+            let last_checkpoint_segment = state.last_checkpoint_segment_id.clone();
+            let last_checkpoint_record_id = state.last_checkpoint_record_id;
 
             for segment_file in segment_files {
                 let current_segment_id = WALSegmentID::try_from(segment_file.as_str())
@@ -139,7 +143,7 @@ impl DBEngine {
         let mut manager = Self {
             system_info,
             base_path: base_path.clone(),
-            wal_manager,
+            wal_manager: Arc::new(Mutex::new(wal_manager)),
             memtable_manager: Arc::new(memtable_manager),
             disktable_manager,
             compaction_manager: Arc::new(Mutex::new(compaction_manager)),
