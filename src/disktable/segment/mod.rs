@@ -64,7 +64,8 @@ impl TableSegmentManager {
         Ok(file)
     }
 
-    pub async fn expand_segment(&self, table_name: &str, size: u64) -> errors::Result<File> {
+    // increase size of segment file
+    pub async fn increase_segment(&self, table_name: &str, size: u64) -> errors::Result<File> {
         // 1. Check if table exists
         let mut table_map = self.tables_map.lock().await;
 
@@ -75,8 +76,7 @@ impl TableSegmentManager {
                 table_name
             )))?;
 
-        // 2. Create new segment file
-        table_status.last_segment_id += 1;
+        // 2. get segment file
         let segment_filename: String = (&TableSegmentID::new(table_status.last_segment_id)).into();
 
         let new_segment_file_path = self
@@ -93,6 +93,7 @@ impl TableSegmentManager {
             .await
             .map_err(|err| Errors::TableSegmentFileCreateError(err.to_string()))?;
 
+        // 3. Expand segment file
         file_resize_and_set_zero(&mut file, size).await?;
 
         Ok(file)
