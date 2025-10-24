@@ -25,10 +25,12 @@ pub struct CompactionManager {
 
 impl CompactionManager {
     pub fn new(
-        _memtable_manager: &mut MemtableManager,
+        memtable_manager: &mut MemtableManager,
         disktable_manager: Arc<DiskTableManager>,
     ) -> Self {
-        let (_, receiver) = tokio::sync::mpsc::channel(1);
+        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+
+        memtable_manager.memtable_flush_sender = sender;
 
         CompactionManager {
             memtable_flush_receiver: receiver,

@@ -28,7 +28,7 @@ pub struct MemtableManager {
     #[allow(dead_code)]
     memtable_size_soft_limit: usize,
     memtable_size_hard_limit: usize,
-    memtable_flush_sender: tokio::sync::mpsc::Sender<MemtableFlushEvent>,
+    pub(crate) memtable_flush_sender: tokio::sync::mpsc::Sender<MemtableFlushEvent>,
 
     // borrowed from WALManager
     pub(crate) wal_state: Arc<Mutex<WALGlobalState>>,
@@ -167,7 +167,8 @@ impl MemtableManager {
                     wal_state,
                 })
                 .await;
-            self.block_write.store(true, Ordering::SeqCst);
+
+            self.block_write.store(false, Ordering::SeqCst);
         } else {
             return Err(errors::Errors::MemtableFlushAlreadyInProgress);
         }

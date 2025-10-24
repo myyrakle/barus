@@ -464,7 +464,7 @@ pub async fn trigger_memtable_flush(Extension(db): Extension<Arc<DBEngine>>) -> 
                 .body("Memtable flush already in progress".into())
                 .unwrap(),
             _ => {
-                let error_message = format!("Error flushing memtable: {:?}", error);
+                let error_message = format!("Memtable flush triggered: {:?}", error);
                 Response::builder().status(500).body(error_message).unwrap()
             }
         },
