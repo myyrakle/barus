@@ -113,10 +113,7 @@ impl DBEngine {
         {
             let segment_files = wal_manager.list_segment_files().await?;
 
-            let state = {
-                
-                wal_manager.state.lock().await.clone()
-            };
+            let state = { wal_manager.state.lock().await.clone() };
 
             let last_checkpoint_segment = state.last_checkpoint_segment_id.clone();
             let last_checkpoint_record_id = state.last_checkpoint_record_id;

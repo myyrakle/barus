@@ -244,14 +244,14 @@ impl WALManager {
             ));
         }
 
-        let wal_state = self.state.lock().await.clone();
+        let mut wal_state = { self.state.lock().await.clone() };
 
         // 2. Check if need to new segment file.
         // If current segment file size + new record size > WAL_SEGMENT_SIZE, create new segment file
-        let current_segment_size = wal_state.last_segment_file_offset;
-
-        if current_segment_size + record.size() > WAL_SEGMENT_SIZE {
+        if wal_state.last_segment_file_offset + record.size() > WAL_SEGMENT_SIZE {
+            log::debug!("Creating new WAL segment file");
             *write_state = self.new_segment_file().await?;
+            wal_state = self.state.lock().await.clone();
         }
 
         // 3. Serialize the record and write (zero copy)
@@ -342,12 +342,17 @@ impl WALManager {
             offset += WAL_RECORD_HEADER_SIZE;
 
             if offset + payload_size > bytes.len() {
-                break; // Incomplete record, stop processing
+                log::error!("Incomplete WAL record at offset {}", offset);
+                break;
             }
 
             let payload_bytes = &bytes[offset..offset + payload_size];
 
-            let record = self.codec.decode(payload_bytes)?;
+            let Ok(record) = self.codec.decode(payload_bytes) else {
+                log::error!("Failed to decode WAL record at offset {}", offset);
+                offset += payload_size;
+                continue;
+            };
 
             records.push(record);
             offset += payload_size;
@@ -374,6 +379,7 @@ impl WALManager {
         let new_segment_id = {
             let mut state = self.state.lock().await;
             state.last_segment_id.increment();
+            state.last_segment_file_offset = 0;
 
             state.last_segment_id.clone()
         };
@@ -397,11 +403,6 @@ impl WALManager {
             })?;
 
         file_resize_and_set_zero(&mut file, WAL_SEGMENT_SIZE as u64).await?;
-
-        {
-            let mut state = self.state.lock().await;
-            state.last_segment_file_offset = 0;
-        }
 
         WALSegmentWriteHandle::new(file).await
     }
