@@ -1,3 +1,5 @@
+use std::os::unix::fs::MetadataExt;
+
 use crate::errors;
 use tokio::fs::File;
 
@@ -5,13 +7,23 @@ use tokio::fs::File;
 pub async fn file_resize_and_set_zero(file: &mut File, size: u64) -> errors::Result<()> {
     use std::os::fd::{AsFd, AsRawFd};
 
+    let file_size = match file.metadata().await {
+        Ok(metadata) => metadata.size(),
+        Err(e) => {
+            return Err(errors::Errors::FileOpenError(format!(
+                "Failed to get file metadata: {}",
+                e
+            )));
+        }
+    };
+
     let fd = file.as_fd().as_raw_fd();
 
     let result = unsafe {
         libc::fallocate(
             fd,
             libc::FALLOC_FL_ZERO_RANGE, // 0으로 채우기
-            0,
+            file_size as i64,
             size as i64,
         )
     };
@@ -30,7 +42,17 @@ pub async fn file_resize_and_set_zero(file: &mut File, size: u64) -> errors::Res
 pub async fn file_resize_and_set_zero(file: &mut File, size: u64) -> Result<(), errors::Errors> {
     use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
-    file.set_len(size as u64).await.map_err(|e| {
+    let file_size = match file.metadata().await {
+        Ok(metadata) => metadata.size(),
+        Err(e) => {
+            return Err(errors::Errors::FileOpenError(format!(
+                "Failed to get file metadata: {}",
+                e
+            )));
+        }
+    };
+
+    file.set_len(file_size + size as u64).await.map_err(|e| {
         errors::Errors::WALSegmentFileOpenError(format!(
             "Failed to set length for new WAL segment file: {}",
             e
@@ -38,6 +60,11 @@ pub async fn file_resize_and_set_zero(file: &mut File, size: u64) -> Result<(), 
     })?;
 
     let zero_bytes = vec![0; size as usize];
+
+    file.seek(std::io::SeekFrom::Start(file_size))
+        .await
+        .map_err(|e| errors::Errors::WALSegmentFileOpenError(e.to_string()))?;
+
     file.write_all(&zero_bytes).await.map_err(|e| {
         errors::Errors::FileOpenError(format!("Failed to zero-fill new WAL segment file: {}", e))
     })?;
