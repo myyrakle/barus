@@ -25,6 +25,7 @@ pub enum Errors {
     KeySizeTooLarge,
     ValueSizeTooLarge,
     FileOpenError(String),
+    MemtableFlushAlreadyInProgress,
 }
 
 impl std::fmt::Display for Errors {
@@ -61,6 +62,9 @@ impl std::fmt::Display for Errors {
             Errors::KeyIsEmpty => write!(f, "Key Is Empty"),
             Errors::ValueSizeTooLarge => write!(f, "Value Size Too Large"),
             Errors::FileOpenError(msg) => write!(f, "File Open Error: {}", msg),
+            Errors::MemtableFlushAlreadyInProgress => {
+                write!(f, "Memtable Flush Already In Progress")
+            }
         }
     }
 }

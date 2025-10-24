@@ -12,9 +12,10 @@ pub mod barus {
 use barus::barus_service_server::{BarusService, BarusServiceServer};
 use barus::{
     CreateTableRequest, CreateTableResponse, DeleteRequest, DeleteResponse, DropTableRequest,
-    DropTableResponse, FlushWalRequest, FlushWalResponse, GetDbStatusRequest, GetDbStatusResponse,
-    GetRequest, GetResponse, GetTableRequest, GetTableResponse, HealthRequest, HealthResponse,
-    ListTablesRequest, ListTablesResponse, PutRequest, PutResponse, TableInfo,
+    DropTableResponse, FlushMemtableRequest, FlushMemtableResponse, FlushWalRequest,
+    FlushWalResponse, GetDbStatusRequest, GetDbStatusResponse, GetRequest, GetResponse,
+    GetTableRequest, GetTableResponse, HealthRequest, HealthResponse, ListTablesRequest,
+    ListTablesResponse, PutRequest, PutResponse, TableInfo,
 };
 
 pub struct BarusGrpcService {
@@ -210,6 +211,30 @@ impl BarusService for BarusGrpcService {
                 "Failed to get DB status: {:?}",
                 e
             ))),
+        }
+    }
+
+    async fn flush_memtable(
+        &self,
+        _request: Request<FlushMemtableRequest>,
+    ) -> Result<Response<FlushMemtableResponse>, Status> {
+        match self.db.trigger_memtable_flush().await {
+            Ok(_) => Ok(Response::new(FlushMemtableResponse {
+                message: "Memtable flushed successfully".to_string(),
+            })),
+            Err(e) => {
+                // Check for specific error types
+                use crate::errors::Errors;
+                match e {
+                    Errors::MemtableFlushAlreadyInProgress => {
+                        Err(Status::already_exists("Memtable flush already in progress"))
+                    }
+                    _ => Err(Status::internal(format!(
+                        "Failed to flush memtable: {:?}",
+                        e
+                    ))),
+                }
+            }
         }
     }
 }
