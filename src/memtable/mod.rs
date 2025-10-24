@@ -134,6 +134,27 @@ impl MemtableManager {
         Ok(())
     }
 
+    pub async fn trigger_flush(&self) -> errors::Result<()> {
+        if self
+            .block_write
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            self.memtable_current_size.store(0, Ordering::SeqCst);
+
+            let mut memtable_map = self.memtable_map.write().await;
+            let mut flushing_memtable = self.flushing_memtable_map.write().await;
+            std::mem::swap(&mut *memtable_map, &mut *flushing_memtable);
+
+            let _ = self.memtable_flush_sender.send(MemtableFlushEvent {}).await;
+            self.block_write.store(true, Ordering::SeqCst);
+        } else {
+            return Err(errors::Errors::MemtableFlushAlreadyInProgress);
+        }
+
+        Ok(())
+    }
+
     pub async fn put(&self, table: String, key: String, value: String) -> errors::Result<()> {
         let bytes = key.len() + value.len();
 
@@ -151,21 +172,7 @@ impl MemtableManager {
             let new_size_value = current_memtable_size + (bytes as u64);
 
             if new_size_value > self.memtable_size_hard_limit as u64 {
-                if self.block_write.compare_exchange(
-                    false,
-                    true,
-                    Ordering::SeqCst,
-                    Ordering::SeqCst,
-                ).is_ok() {
-                    self.memtable_current_size.store(0, Ordering::SeqCst);
-
-                    let mut memtable_map = self.memtable_map.write().await;
-                    let mut flushing_memtable = self.flushing_memtable_map.write().await;
-                    std::mem::swap(&mut *memtable_map, &mut *flushing_memtable);
-
-                    let _ = self.memtable_flush_sender.send(MemtableFlushEvent {}).await;
-                    self.block_write.store(true, Ordering::SeqCst);
-                }
+                self.trigger_flush().await?;
 
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 continue;
