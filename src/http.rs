@@ -23,6 +23,7 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
         .route("/tables/{table}/value", put(put_value))
         .route("/tables/{table}/value", delete(delete_value))
         .route("/wal/flush", post(flush_wal))
+        .route("/memtable/flush", post(trigger_memtable_flush))
         .layer(axum::extract::Extension(db_engine));
 
     let addr = format!("0.0.0.0:{}", *HTTP_PORT);
@@ -448,5 +449,24 @@ async fn flush_wal(Extension(db): Extension<Arc<DBEngine>>) -> impl IntoResponse
             let error_message = format!("Error flushing WAL: {:?}", e);
             Response::builder().status(500).body(error_message).unwrap()
         }
+    }
+}
+
+pub async fn trigger_memtable_flush(Extension(db): Extension<Arc<DBEngine>>) -> impl IntoResponse {
+    match db.trigger_memtable_flush().await {
+        Ok(_) => Response::builder()
+            .status(200)
+            .body("Memtable flushed successfully".into())
+            .unwrap(),
+        Err(error) => match error {
+            Errors::MemtableFlushAlreadyInProgress => Response::builder()
+                .status(409)
+                .body("Memtable flush already in progress".into())
+                .unwrap(),
+            _ => {
+                let error_message = format!("Error flushing memtable: {:?}", error);
+                Response::builder().status(500).body(error_message).unwrap()
+            }
+        },
     }
 }

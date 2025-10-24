@@ -366,4 +366,11 @@ impl DBEngine {
 
         Ok(())
     }
+
+    /// Trigger memtable flush
+    pub async fn trigger_memtable_flush(&self) -> errors::Result<()> {
+        self.memtable_manager.trigger_flush().await?;
+
+        Ok(())
+    }
 }
