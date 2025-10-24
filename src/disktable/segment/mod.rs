@@ -86,9 +86,8 @@ impl TableSegmentManager {
             .join(segment_filename);
 
         let mut file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
             .write(true)
+            .read(true)
             .open(new_segment_file_path)
             .await
             .map_err(|err| Errors::TableSegmentFileCreateError(err.to_string()))?;

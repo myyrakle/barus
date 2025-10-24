@@ -1,5 +1,3 @@
-use std::os::unix::fs::MetadataExt;
-
 use crate::errors;
 use tokio::fs::File;
 
@@ -8,7 +6,7 @@ pub async fn file_resize_and_set_zero(file: &mut File, size: u64) -> errors::Res
     use std::os::fd::{AsFd, AsRawFd};
 
     let file_size = match file.metadata().await {
-        Ok(metadata) => metadata.size(),
+        Ok(metadata) => metadata.len(),
         Err(e) => {
             return Err(errors::Errors::FileOpenError(format!(
                 "Failed to get file metadata: {}",
@@ -43,7 +41,7 @@ pub async fn file_resize_and_set_zero(file: &mut File, size: u64) -> Result<(), 
     use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
     let file_size = match file.metadata().await {
-        Ok(metadata) => metadata.size(),
+        Ok(metadata) => metadata.len(),
         Err(e) => {
             return Err(errors::Errors::FileOpenError(format!(
                 "Failed to get file metadata: {}",
