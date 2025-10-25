@@ -3,8 +3,11 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::{
-    config::TABLES_DIRECTORY, disktable::table::TableInfo, errors, memtable::HashMemtable,
-    wal::state::WALGlobalState,
+    config::TABLES_DIRECTORY,
+    disktable::{segment::TableRecordPayload, table::TableInfo},
+    errors::{self, Errors},
+    memtable::HashMemtable,
+    wal::state::{WALGlobalState, WALStateWriteHandles},
 };
 
 pub mod index;
@@ -31,6 +34,7 @@ impl DiskTableManager {
     }
 
     pub async fn initialize(&self) -> errors::Result<()> {
+        // 1. Initialize Table Directory
         let tables_path = self.base_path.join(TABLES_DIRECTORY);
 
         if !tables_path.exists() {
@@ -43,6 +47,10 @@ impl DiskTableManager {
                     ))
                 })?;
         }
+
+        // 2. Set Table Names
+        let table_names = self.list_tables().await?;
+        self.segment_manager.set_table_names(table_names).await?;
 
         Ok(())
     }
@@ -172,24 +180,100 @@ impl DiskTableManager {
         Ok(())
     }
 
-    pub async fn get(&self, _table: &str, _key: &str) -> errors::Result<DisktableGetResult> {
+    pub async fn get_value(&self, _table: &str, _key: &str) -> errors::Result<DisktableGetResult> {
         Ok(DisktableGetResult::Found("disk value".to_string()))
     }
 
-    pub async fn put(&self, _table: String, _key: String, _value: String) -> errors::Result<()> {
+    pub async fn put_value(
+        &self,
+        _table: String,
+        _key: String,
+        _value: String,
+    ) -> errors::Result<()> {
         Ok(())
     }
 
-    pub async fn delete(&self, _table: String, _key: String) -> errors::Result<()> {
+    pub async fn delete_value(&self, _table: String, _key: String) -> errors::Result<()> {
         Ok(())
     }
 
     pub async fn write_memtable(
         &self,
-        _memtable: HashMap<String, Arc<Mutex<HashMemtable>>>,
-        _wal_state: WALGlobalState,
+        memtable: HashMap<String, Arc<Mutex<HashMemtable>>>,
+        wal_state: Arc<Mutex<WALGlobalState>>,
+        wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     ) -> errors::Result<()> {
-        unimplemented!();
+        // 1. write memtable to disk
+        for (table_name, memtable) in memtable {
+            let mut memtable = memtable.lock().await;
+
+            for (key, memtable_entry) in memtable.table.iter() {
+                match &memtable_entry.value {
+                    // Insert/Update Process
+                    Some(value) => {
+                        // delete old data if exists
+                        let old_position = self
+                            .index_manager
+                            .find_record(table_name.as_str(), key.as_str())
+                            .await?;
+
+                        if let Some(old_position) = old_position {
+                            self.segment_manager
+                                .mark_deleted_record(table_name.as_str(), old_position)
+                                .await?;
+                        }
+
+                        // insert new data
+                        let position = self
+                            .segment_manager
+                            .append_record(
+                                table_name.as_str(),
+                                TableRecordPayload {
+                                    key: key.clone(),
+                                    value: value.clone(),
+                                },
+                            )
+                            .await?;
+
+                        self.index_manager
+                            .add_record(table_name.as_str(), key.as_str(), &position)
+                            .await?;
+                    }
+                    // Delete Process
+                    None => {
+                        let old_position = self
+                            .index_manager
+                            .find_record(table_name.as_str(), key.as_str())
+                            .await?;
+
+                        if let Some(old_position) = old_position {
+                            self.segment_manager
+                                .mark_deleted_record(table_name.as_str(), old_position)
+                                .await?;
+                        }
+                    }
+                };
+            }
+
+            // 1.3. destroy memtable. now, we can find data in disk
+            memtable.table.clear();
+        }
+
+        // 2. move WAL checkpoint
+        {
+            let mut wal_state = wal_state.lock().await;
+
+            wal_state.last_checkpoint_record_id = wal_state.last_record_id;
+            wal_state.last_checkpoint_segment_id = wal_state.last_segment_id.clone();
+            let mut write_handle = wal_state_write_handles.lock().await;
+
+            if let Some(ref mut file) = write_handle.state_file {
+                wal_state.save(file).await?;
+            } else {
+                return Err(Errors::WALStateFileHandleNotFound);
+            }
+        }
+        Ok(())
     }
 }
 

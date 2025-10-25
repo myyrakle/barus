@@ -1,5 +1,6 @@
 #[derive(Debug)]
 pub enum Errors {
+    // WAL related errors
     WALInitializationError(String),
     WALRecordEncodeError(String),
     WALRecordDecodeError(String),
@@ -10,21 +11,28 @@ pub enum Errors {
     WALStateWriteError(String),
     WALSegmentIDParseError(String),
     WALSegmentFileOpenError(String),
+
+    // Table related errors
     TableSegmentIDParseError(String),
     TableSegmentFileCreateError(String),
+    TableSegmentFileOpenError(String),
+
+    TableCreationError(String),
+    FileOpenError(String),
+    TableListFailed(String),
+    TableGetFailed(String),
+    WALStateFileHandleNotFound,
+
+    // User Bad Request Errors
     TableNotFound(String),
     ValueNotFound(String),
     TableAlreadyExists(String),
-    TableCreationError(String),
-    TableGetFailed(String),
-    TableListFailed(String),
     TableNameIsEmpty,
     TableNameTooLong,
     TableNameIsInvalid(String),
     KeyIsEmpty,
     KeySizeTooLarge,
     ValueSizeTooLarge,
-    FileOpenError(String),
     MemtableFlushAlreadyInProgress,
 }
 
@@ -64,6 +72,12 @@ impl std::fmt::Display for Errors {
             Errors::FileOpenError(msg) => write!(f, "File Open Error: {}", msg),
             Errors::MemtableFlushAlreadyInProgress => {
                 write!(f, "Memtable Flush Already In Progress")
+            }
+            Errors::TableSegmentFileOpenError(msg) => {
+                write!(f, "Table Segment File Open Error: {}", msg)
+            }
+            Errors::WALStateFileHandleNotFound => {
+                write!(f, "WAL State File Handle Not Found")
             }
         }
     }

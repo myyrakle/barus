@@ -6,13 +6,16 @@ use crate::{
     disktable::DiskTableManager,
     errors,
     memtable::{HashMemtable, MemtableManager},
-    wal::state::WALGlobalState,
+    wal::{
+        WALManager,
+        state::{WALGlobalState, WALStateWriteHandles},
+    },
 };
 
 #[derive(Default)]
 pub struct MemtableFlushEvent {
     pub memtable: HashMap<String, Arc<Mutex<HashMemtable>>>,
-    pub wal_state: WALGlobalState,
+    pub wal_state: Arc<Mutex<WALGlobalState>>,
 }
 
 #[derive(Debug)]
@@ -21,10 +24,14 @@ pub struct CompactionManager {
 
     // borrowed from disktable manager
     disktable_manager: Arc<DiskTableManager>,
+
+    // borrowed from wal manager
+    wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
 }
 
 impl CompactionManager {
     pub fn new(
+        wal_manager: &WALManager,
         memtable_manager: &mut MemtableManager,
         disktable_manager: Arc<DiskTableManager>,
     ) -> Self {
@@ -33,6 +40,7 @@ impl CompactionManager {
         memtable_manager.memtable_flush_sender = sender;
 
         CompactionManager {
+            wal_state_write_handles: wal_manager.wal_state_write_handles.clone(),
             memtable_flush_receiver: receiver,
             disktable_manager: disktable_manager.clone(),
         }
@@ -50,6 +58,7 @@ impl CompactionManager {
             std::mem::replace(&mut self.memtable_flush_receiver, fake_receiver);
 
         let disk_manager = self.disktable_manager.clone();
+        let wal_state_write_handles = self.wal_state_write_handles.clone();
 
         tokio::spawn(async move {
             while let Some(event) = memtable_flush_receiver.recv().await {
@@ -57,7 +66,11 @@ impl CompactionManager {
                 log::info!("Memtable flush event received");
 
                 if let Err(error) = disk_manager
-                    .write_memtable(event.memtable, event.wal_state)
+                    .write_memtable(
+                        event.memtable,
+                        event.wal_state,
+                        wal_state_write_handles.clone(),
+                    )
                     .await
                 {
                     log::error!("Failed to write memtable: {}", error);

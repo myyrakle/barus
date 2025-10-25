@@ -98,8 +98,11 @@ impl DBEngine {
 
         // 6. compaction manager load
         log::info!("Initializing compaction manager...");
-        let compaction_manager =
-            CompactionManager::new(&mut memtable_manager, disktable_manager.clone());
+        let compaction_manager = CompactionManager::new(
+            &wal_manager,
+            &mut memtable_manager,
+            disktable_manager.clone(),
+        );
 
         // 7. Load table list
         log::info!("Loading table list...");
@@ -113,7 +116,7 @@ impl DBEngine {
         {
             let segment_files = wal_manager.list_segment_files().await?;
 
-            let state = { wal_manager.state.lock().await.clone() };
+            let state = { wal_manager.wal_state.lock().await.clone() };
 
             let last_checkpoint_segment = state.last_checkpoint_segment_id.clone();
             let last_checkpoint_record_id = state.last_checkpoint_record_id;
@@ -290,7 +293,7 @@ impl DBEngine {
 
         // 4. Try to get from disk area (not implemented yet)
         {
-            let disktable_result = self.disktable_manager.get(table, key).await?;
+            let disktable_result = self.disktable_manager.get_value(table, key).await?;
 
             match disktable_result {
                 DisktableGetResult::Found(value) => Ok(GetResponse { value }),
