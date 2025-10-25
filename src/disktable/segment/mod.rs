@@ -369,16 +369,17 @@ impl TableSegmentManager {
             )));
         };
 
-        // 2. If the current segment is full, a new segment is created.
-        if table.segment_file_size + total_bytes > DISKTABLE_SEGMENT_SIZE {
-            self.create_segment(table_name, table, DISKTABLE_PAGE_SIZE)
-                .await?;
-        }
-
-        // 3. If the current page is full, a new page is created.
+        // 2. If the current page is full, create new page or new segment.
         if table.current_page_offset + total_bytes > table.segment_file_size {
-            self.increase_segment(table_name, table, DISKTABLE_PAGE_SIZE)
-                .await?;
+            // 3-a. If the segment size reaches its maximum size, a new segment is created.
+            // 3-b. If the segment size not reaches its maximum size, segment size grows. (new page)
+            if table.segment_file_size + total_bytes > DISKTABLE_SEGMENT_SIZE {
+                self.create_segment(table_name, table, DISKTABLE_PAGE_SIZE)
+                    .await?;
+            } else {
+                self.increase_segment(table_name, table, DISKTABLE_PAGE_SIZE)
+                    .await?;
+            }
         }
 
         // 4. If there is enough space, write the data immediately.
