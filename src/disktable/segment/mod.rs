@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Debug, io::SeekFrom, path::PathBuf, sync::A
 use tokio::{
     fs::{File, OpenOptions},
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
-    sync::Mutex,
+    sync::{Mutex, RwLock},
 };
 
 use crate::{
@@ -44,7 +44,7 @@ pub struct TableSegmentManager {
     codec: Box<dyn TableRecordCodec + Send + Sync>,
     base_path: PathBuf,
     tables_map: Arc<Mutex<HashMap<String, TableSegmentStatePerTable>>>,
-    file_rw_lock: Arc<Mutex<HashMap<String, ()>>>,
+    file_rw_lock: Arc<Mutex<HashMap<String, Arc<RwLock<()>>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -336,6 +336,25 @@ impl TableSegmentManager {
         Ok(file)
     }
 
+    async fn lock_segment_file(
+        &self,
+        table_name: &str,
+        segment_id: &TableSegmentID,
+    ) -> Arc<RwLock<()>> {
+        let file_key = format!("{}/{}", table_name, segment_id.0);
+
+        let table_lock = {
+            let mut locks_map = self.file_rw_lock.lock().await;
+
+            locks_map
+                .entry(file_key)
+                .or_insert(Arc::new(RwLock::new(())))
+                .clone()
+        };
+
+        table_lock
+    }
+
     pub async fn append_record(
         &self,
         table_name: &str,
@@ -382,14 +401,20 @@ impl TableSegmentManager {
         }
 
         // 4. If there is enough space, write the data immediately.
-        // TODO: managing file handler pool
+        // TODO: managing file handler pool for I/O performance
         let (mut file, segment_id) = self.get_last_segment_file(table_name).await?;
+
+        let segment_file_lock = self.lock_segment_file(table_name, &segment_id).await;
+        let write_lock = segment_file_lock.write().await;
+
         file.seek(SeekFrom::Start(table.current_page_offset as u64))
             .await
             .map_err(|e| Errors::FileSeekError(format!("Failed to seek file: {}", e)))?;
         file.write_all(&write_buffer).await.map_err(|e| {
             Errors::TableSegmentFileWriteError(format!("Failed to write data: {}", e))
         })?;
+
+        drop(write_lock);
 
         let position = TableRecordPosition {
             segment_id,

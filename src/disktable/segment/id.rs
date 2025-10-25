@@ -2,7 +2,7 @@ use crate::errors;
 
 // 16 length hex ID (ex 0000000D000000EA)
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
-pub struct TableSegmentID(u64);
+pub struct TableSegmentID(pub u64);
 
 impl std::ops::Add<u64> for TableSegmentID {
     type Output = TableSegmentID;
