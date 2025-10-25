@@ -1,6 +1,5 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use nix::NixPath;
 use tokio::{
     fs::{File, OpenOptions},
     sync::Mutex,
@@ -75,7 +74,9 @@ impl TableSegmentManager {
                             .and_then(|name| name.to_str().map(|s| s.to_string()))
                             .unwrap_or_default();
 
-                        let file_size = path.len() as u64;
+                        let Ok(file_size) = e.metadata().map(|meta| meta.len()) else {
+                            return None;
+                        };
 
                         Some(ListSegmentFileItem {
                             file_name,

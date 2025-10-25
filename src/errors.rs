@@ -21,6 +21,7 @@ pub enum Errors {
     FileOpenError(String),
     TableListFailed(String),
     TableGetFailed(String),
+    WALStateFileHandleNotFound,
 
     // User Bad Request Errors
     TableNotFound(String),
@@ -74,6 +75,9 @@ impl std::fmt::Display for Errors {
             }
             Errors::TableSegmentFileOpenError(msg) => {
                 write!(f, "Table Segment File Open Error: {}", msg)
+            }
+            Errors::WALStateFileHandleNotFound => {
+                write!(f, "WAL State File Handle Not Found")
             }
         }
     }

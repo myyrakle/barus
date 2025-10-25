@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 use crate::{
     config::TABLES_DIRECTORY,
     disktable::{segment::TableRecordPayload, table::TableInfo},
-    errors,
+    errors::{self, Errors},
     memtable::HashMemtable,
     wal::state::{WALGlobalState, WALStateWriteHandles},
 };
@@ -269,6 +269,8 @@ impl DiskTableManager {
 
             if let Some(ref mut file) = write_handle.state_file {
                 wal_state.save(file).await?;
+            } else {
+                return Err(Errors::WALStateFileHandleNotFound);
             }
         }
         Ok(())
