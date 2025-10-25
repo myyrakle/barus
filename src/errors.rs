@@ -16,6 +16,8 @@ pub enum Errors {
     TableSegmentIDParseError(String),
     TableSegmentFileCreateError(String),
     TableSegmentFileOpenError(String),
+    TableRecordDecodeError(String),
+    TableRecordEncodeError(String),
 
     TableCreationError(String),
     FileOpenError(String),
@@ -78,6 +80,12 @@ impl std::fmt::Display for Errors {
             }
             Errors::WALStateFileHandleNotFound => {
                 write!(f, "WAL State File Handle Not Found")
+            }
+            Errors::TableRecordDecodeError(msg) => {
+                write!(f, "Table Record Decode Error: {}", msg)
+            }
+            Errors::TableRecordEncodeError(msg) => {
+                write!(f, "Table Record Encode Error: {}", msg)
             }
         }
     }

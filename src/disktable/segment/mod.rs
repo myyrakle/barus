@@ -12,17 +12,19 @@ use crate::{
     os::file_resize_and_set_zero,
 };
 
+pub mod encode;
 pub mod id;
 pub mod record;
 
 #[derive(Debug, Clone)]
 pub struct TableSegmentManager {
     base_path: PathBuf,
-    tables_map: Arc<Mutex<HashMap<String, TableSegmentStatusPerTable>>>,
+    tables_map: Arc<Mutex<HashMap<String, TableSegmentStatePerTable>>>,
+    file_rw_lock: Arc<Mutex<HashMap<String, ()>>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct TableSegmentStatusPerTable {
+pub struct TableSegmentStatePerTable {
     last_segment_id: TableSegmentID,
     file_size: u64,
 }
@@ -48,6 +50,7 @@ impl TableSegmentManager {
         Self {
             base_path,
             tables_map: Arc::new(Mutex::new(HashMap::new())),
+            file_rw_lock: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -114,7 +117,7 @@ impl TableSegmentManager {
             let mut table_map = self.tables_map.lock().await;
             table_map.insert(
                 table_name,
-                TableSegmentStatusPerTable {
+                TableSegmentStatePerTable {
                     last_segment_id,
                     file_size,
                 },
