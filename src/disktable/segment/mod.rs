@@ -424,7 +424,7 @@ impl TableSegmentManager {
         &self,
         table_name: &str,
         position: TableRecordPosition,
-    ) -> Result<TableRecordPayload, Errors> {
+    ) -> Result<(RecordStateFlags, TableRecordPayload), Errors> {
         let segment_file_lock = self
             .lock_segment_file(table_name, &position.segment_id)
             .await;
@@ -438,10 +438,11 @@ impl TableSegmentManager {
             .await
             .map_err(|e| Errors::FileSeekError(format!("Failed to seek file: {}", e)))?;
 
-        let _flag_byte = file
+        let flag_byte = file
             .read_u8()
             .await
             .map_err(|e| Errors::FileReadError(format!("Failed to read flag byte: {}", e)))?;
+        let flag = RecordStateFlags::from(flag_byte);
 
         let size_header = file
             .read_u32()
@@ -457,7 +458,7 @@ impl TableSegmentManager {
 
         let record = self.codec.decode(&buffer)?;
 
-        Ok(record)
+        Ok((flag, record))
     }
 
     /// Marks a record as deleted in the segment file. (not real delete)
