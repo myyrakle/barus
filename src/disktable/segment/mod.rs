@@ -258,7 +258,7 @@ impl TableSegmentManager {
             .read(true)
             .open(new_segment_file_path)
             .await
-            .map_err(|err| Errors::TableSegmentFileCreateError(err.to_string()))?;
+            .map_err(|err| Errors::TableSegmentFileOpenError(err.to_string()))?;
 
         Ok(file)
     }
