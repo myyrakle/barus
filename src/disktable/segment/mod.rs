@@ -250,13 +250,13 @@ impl TableSegmentManager {
         })
     }
 
-    pub async fn get_last_segment_file(
+    pub async fn get_segment_file(
         &self,
         table_name: &str,
-        table_state: &TableSegmentStatePerTable,
+        segment_id: &TableSegmentID,
     ) -> errors::Result<File> {
         // 2. get segment file
-        let segment_filename: String = (&table_state.last_segment_id).into();
+        let segment_filename: String = segment_id.into();
 
         let new_segment_file_path = self
             .base_path
@@ -315,7 +315,9 @@ impl TableSegmentManager {
         table_state: &mut TableSegmentStatePerTable,
         size: u32,
     ) -> errors::Result<File> {
-        let mut file = self.get_last_segment_file(table_name, table_state).await?;
+        let mut file = self
+            .get_segment_file(table_name, &table_state.last_segment_id)
+            .await?;
 
         // 3. Expand segment file
         file_resize_and_set_zero(&mut file, size).await?;
@@ -334,16 +336,14 @@ impl TableSegmentManager {
     ) -> Arc<RwLock<()>> {
         let file_key = format!("{}/{}", table_name, segment_id.0);
 
-        let table_lock = {
+        {
             let mut locks_map = self.file_rw_lock.lock().await;
 
             locks_map
                 .entry(file_key)
                 .or_insert(Arc::new(RwLock::new(())))
                 .clone()
-        };
-
-        table_lock
+        }
     }
 
     pub async fn append_record(
@@ -395,7 +395,9 @@ impl TableSegmentManager {
 
         // 4. If there is enough space, write the data immediately.
         // TODO: managing file handler pool for I/O performance
-        let mut file = self.get_last_segment_file(table_name, table).await?;
+        let mut file = self
+            .get_segment_file(table_name, &table.last_segment_id)
+            .await?;
 
         let segment_file_lock = self
             .lock_segment_file(table_name, &table.last_segment_id)
@@ -423,11 +425,42 @@ impl TableSegmentManager {
 
     pub async fn find_record(
         &self,
-        _table_name: &str,
-        _position: TableRecordPosition,
+        table_name: &str,
+        position: TableRecordPosition,
     ) -> Result<TableRecordPayload, Errors> {
-        // Implementation goes here
-        unimplemented!()
+        let segment_file_lock = self
+            .lock_segment_file(table_name, &position.segment_id)
+            .await;
+        let read_lock = segment_file_lock.read().await;
+
+        let mut file = self
+            .get_segment_file(table_name, &position.segment_id)
+            .await?;
+
+        file.seek(SeekFrom::Start(position.offset as u64))
+            .await
+            .map_err(|e| Errors::FileSeekError(format!("Failed to seek file: {}", e)))?;
+
+        let _flag_byte = file
+            .read_u8()
+            .await
+            .map_err(|e| Errors::FileReadError(format!("Failed to read flag byte: {}", e)))?;
+
+        let size_header = file
+            .read_u32()
+            .await
+            .map_err(|e| Errors::FileReadError(format!("Failed to read size header: {}", e)))?;
+
+        let mut buffer = vec![0; size_header as usize];
+        file.read_exact(&mut buffer)
+            .await
+            .map_err(|e| Errors::FileReadError(format!("Failed to read data: {}", e)))?;
+
+        drop(read_lock);
+
+        let record = self.codec.decode(&buffer)?;
+
+        Ok(record)
     }
 
     pub async fn mark_deleted_record(
