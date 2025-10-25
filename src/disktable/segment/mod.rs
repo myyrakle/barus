@@ -218,7 +218,7 @@ impl TableSegmentManager {
                 scan_items.push(ScanSegmentFileItem {
                     state_flags: flag_header,
                     position: TableRecordPosition {
-                        segment_id: TableSegmentID::try_from(segment_file_name).unwrap(),
+                        segment_id: TableSegmentID::try_from(segment_file_name).unwrap_or_default(),
                         offset: real_offset,
                     },
                     payload: record,
