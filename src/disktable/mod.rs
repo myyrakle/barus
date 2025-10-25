@@ -34,6 +34,7 @@ impl DiskTableManager {
     }
 
     pub async fn initialize(&self) -> errors::Result<()> {
+        // 1. Initialize Table Directory
         let tables_path = self.base_path.join(TABLES_DIRECTORY);
 
         if !tables_path.exists() {
@@ -46,6 +47,10 @@ impl DiskTableManager {
                     ))
                 })?;
         }
+
+        // 2. Set Table Names
+        let table_names = self.list_tables().await?;
+        self.segment_manager.set_table_names(table_names).await?;
 
         Ok(())
     }
@@ -194,7 +199,9 @@ impl DiskTableManager {
         wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     ) -> errors::Result<()> {
         // 1.
-        //
+        for (table_name, memtable) in _memtable {
+            let mut memtable = memtable.lock().await;
+        }
 
         // move checkpoint
         {
