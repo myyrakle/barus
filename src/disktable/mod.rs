@@ -4,7 +4,10 @@ use tokio::sync::Mutex;
 
 use crate::{
     config::TABLES_DIRECTORY,
-    disktable::{segment::TableRecordPayload, table::TableInfo},
+    disktable::{
+        segment::{RecordStateFlags, TableRecordPayload},
+        table::TableInfo,
+    },
     errors::{self, Errors},
     memtable::HashMemtable,
     wal::state::{WALGlobalState, WALStateWriteHandles},
@@ -178,20 +181,63 @@ impl DiskTableManager {
         Ok(())
     }
 
-    pub async fn get_value(&self, _table: &str, _key: &str) -> errors::Result<DisktableGetResult> {
-        Ok(DisktableGetResult::Found("disk value".to_string()))
+    pub async fn get_value(
+        &self,
+        table_name: &str,
+        _key: &str,
+    ) -> errors::Result<DisktableGetResult> {
+        // 1. find record position from index
+        let Some(position) = self.index_manager.find_record(table_name, _key).await? else {
+            return Ok(DisktableGetResult::NotFound);
+        };
+
+        // 2. read record from segment
+        let (flag, record) = self
+            .segment_manager
+            .find_record(table_name, position)
+            .await?;
+
+        if flag == RecordStateFlags::Deleted {
+            return Ok(DisktableGetResult::Deleted);
+        }
+
+        Ok(DisktableGetResult::Found(record.value))
     }
 
-    pub async fn put_value(
+    pub async fn insert_value(
         &self,
-        _table: String,
-        _key: String,
-        _value: String,
+        table_name: &str,
+        key: &str,
+        value: &str,
     ) -> errors::Result<()> {
+        // insert new data
+        let position = self
+            .segment_manager
+            .append_record(
+                table_name,
+                TableRecordPayload {
+                    key: key.to_owned(),
+                    value: value.to_owned(),
+                },
+            )
+            .await?;
+
+        self.index_manager
+            .add_record(table_name, key, &position)
+            .await?;
+
         Ok(())
     }
 
-    pub async fn delete_value(&self, _table: String, _key: String) -> errors::Result<()> {
+    pub async fn delete_value(&self, table_name: &str, key: &str) -> errors::Result<()> {
+        let old_position = self.index_manager.find_record(table_name, key).await?;
+
+        if let Some(old_position) = old_position {
+            self.segment_manager
+                .mark_deleted_record(table_name, old_position)
+                .await?;
+        }
+
         Ok(())
     }
 
@@ -210,45 +256,15 @@ impl DiskTableManager {
                     // Insert/Update Process
                     Some(value) => {
                         // delete old data if exists
-                        let old_position = self
-                            .index_manager
-                            .find_record(table_name.as_str(), key.as_str())
-                            .await?;
-
-                        if let Some(old_position) = old_position {
-                            self.segment_manager
-                                .mark_deleted_record(table_name.as_str(), old_position)
-                                .await?;
-                        }
+                        self.delete_value(table_name.as_str(), key.as_str()).await?;
 
                         // insert new data
-                        let position = self
-                            .segment_manager
-                            .append_record(
-                                table_name.as_str(),
-                                TableRecordPayload {
-                                    key: key.clone(),
-                                    value: value.clone(),
-                                },
-                            )
-                            .await?;
-
-                        self.index_manager
-                            .add_record(table_name.as_str(), key.as_str(), &position)
+                        self.insert_value(table_name.as_str(), key.as_str(), value.as_str())
                             .await?;
                     }
                     // Delete Process
                     None => {
-                        let old_position = self
-                            .index_manager
-                            .find_record(table_name.as_str(), key.as_str())
-                            .await?;
-
-                        if let Some(old_position) = old_position {
-                            self.segment_manager
-                                .mark_deleted_record(table_name.as_str(), old_position)
-                                .await?;
-                        }
+                        self.delete_value(table_name.as_str(), key.as_str()).await?;
                     }
                 };
             }
