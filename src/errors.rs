@@ -16,6 +16,7 @@ pub enum Errors {
     TableSegmentIDParseError(String),
     TableSegmentFileCreateError(String),
     TableSegmentFileOpenError(String),
+    TableSegmentFileWriteError(String),
     TableRecordDecodeError(String),
     TableRecordEncodeError(String),
 
@@ -62,6 +63,9 @@ impl std::fmt::Display for Errors {
             }
             Errors::TableSegmentFileCreateError(msg) => {
                 write!(f, "Table Segment File Create Error: {}", msg)
+            }
+            Errors::TableSegmentFileWriteError(msg) => {
+                write!(f, "Table Segment File Write Error: {}", msg)
             }
             Errors::TableNotFound(msg) => write!(f, "Table Not Found: {}", msg),
             Errors::ValueNotFound(msg) => write!(f, "Value Not Found: {}", msg),

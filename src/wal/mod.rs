@@ -84,7 +84,7 @@ impl WALManager {
                     ))
                 })?;
 
-            file_resize_and_set_zero(&mut file, WAL_SEGMENT_SIZE as u64)
+            file_resize_and_set_zero(&mut file, WAL_SEGMENT_SIZE)
                 .await
                 .map_err(|e| {
                     errors::Errors::WALSegmentFileOpenError(format!(
@@ -249,7 +249,7 @@ impl WALManager {
 
         // 2. Check if need to new segment file.
         // If current segment file size + new record size > WAL_SEGMENT_SIZE, create new segment file
-        if wal_state.last_segment_file_offset + record.size() > WAL_SEGMENT_SIZE {
+        if wal_state.last_segment_file_offset + record.size() > WAL_SEGMENT_SIZE as usize {
             log::debug!("Creating new WAL segment file");
             *write_state = self.new_segment_file().await?;
             wal_state = self.wal_state.lock().await.clone();
@@ -403,7 +403,7 @@ impl WALManager {
                 ))
             })?;
 
-        file_resize_and_set_zero(&mut file, WAL_SEGMENT_SIZE as u64).await?;
+        file_resize_and_set_zero(&mut file, WAL_SEGMENT_SIZE).await?;
 
         WALSegmentWriteHandle::new(file).await
     }

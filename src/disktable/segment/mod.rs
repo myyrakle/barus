@@ -1,14 +1,8 @@
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    io::{Seek, SeekFrom},
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{collections::HashMap, fmt::Debug, io::SeekFrom, path::PathBuf, sync::Arc};
 
 use tokio::{
     fs::{File, OpenOptions},
-    io::{AsyncReadExt, AsyncSeekExt},
+    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     sync::Mutex,
 };
 
@@ -68,7 +62,7 @@ pub struct ListSegmentFileItem {
 
 pub struct TableRecordPosition {
     pub segment_id: TableSegmentID,
-    pub offset: u64,
+    pub offset: u32,
 }
 
 #[derive(Debug, Clone, bincode::Decode, bincode::Encode)]
@@ -245,8 +239,43 @@ impl TableSegmentManager {
         })
     }
 
+    pub async fn get_last_segment_file(
+        &self,
+        table_name: &str,
+    ) -> errors::Result<(File, TableSegmentID)> {
+        let table_status = {
+            let table_map = self.tables_map.lock().await;
+
+            table_map
+                .get(table_name)
+                .map(ToOwned::to_owned)
+                .ok_or(Errors::TableNotFound(format!(
+                    "Table '{}' not found",
+                    table_name
+                )))?
+        };
+
+        // 2. get segment file
+        let segment_filename: String = (&table_status.last_segment_id).into();
+
+        let new_segment_file_path = self
+            .base_path
+            .join(TABLES_DIRECTORY)
+            .join(table_name)
+            .join(segment_filename);
+
+        let file = OpenOptions::new()
+            .write(true)
+            .read(true)
+            .open(new_segment_file_path)
+            .await
+            .map_err(|err| Errors::TableSegmentFileCreateError(err.to_string()))?;
+
+        Ok((file, table_status.last_segment_id))
+    }
+
     // new segment file (DISKTABLE_PAGE_SIZE start)
-    pub async fn create_segment(&self, table_name: &str, size: u64) -> errors::Result<File> {
+    pub async fn create_segment(&self, table_name: &str, size: u32) -> errors::Result<File> {
         // 1. Check if table exists
         let mut table_map = self.tables_map.lock().await;
 
@@ -259,6 +288,10 @@ impl TableSegmentManager {
 
         // 2. Create new segment file
         table_status.last_segment_id.increment();
+        table_status.current_page_index = 0;
+        table_status.current_page_offset = 0;
+        table_status.segment_file_size = size;
+
         let segment_filename: String = (&table_status.last_segment_id).into();
 
         let new_segment_file_path = self
@@ -281,8 +314,12 @@ impl TableSegmentManager {
     }
 
     // increase size of segment file
-    pub async fn increase_segment(&self, table_name: &str, size: u64) -> errors::Result<File> {
-        // 1. Check if table exists
+    pub async fn increase_segment(&self, table_name: &str, size: u32) -> errors::Result<File> {
+        let (mut file, _) = self.get_last_segment_file(table_name).await?;
+
+        // 3. Expand segment file
+        file_resize_and_set_zero(&mut file, size).await?;
+
         let mut table_map = self.tables_map.lock().await;
 
         let table_status = table_map
@@ -292,24 +329,9 @@ impl TableSegmentManager {
                 table_name
             )))?;
 
-        // 2. get segment file
-        let segment_filename: String = (&table_status.last_segment_id).into();
-
-        let new_segment_file_path = self
-            .base_path
-            .join(TABLES_DIRECTORY)
-            .join(table_name)
-            .join(segment_filename);
-
-        let mut file = OpenOptions::new()
-            .write(true)
-            .read(true)
-            .open(new_segment_file_path)
-            .await
-            .map_err(|err| Errors::TableSegmentFileCreateError(err.to_string()))?;
-
-        // 3. Expand segment file
-        file_resize_and_set_zero(&mut file, size).await?;
+        table_status.current_page_offset = table_status.segment_file_size;
+        table_status.current_page_index += 1;
+        table_status.segment_file_size += size;
 
         Ok(file)
     }
@@ -336,6 +358,9 @@ impl TableSegmentManager {
         ];
 
         let total_bytes = header.len() as u32 + encoded_bytes.len() as u32;
+        let mut write_buffer = Vec::with_capacity(total_bytes as usize);
+        write_buffer.extend_from_slice(&header);
+        write_buffer.extend_from_slice(&encoded_bytes);
 
         let mut tables_map = self.tables_map.lock().await;
         let Some(table) = tables_map.get_mut(table_name) else {
@@ -347,17 +372,33 @@ impl TableSegmentManager {
 
         // 2. If the current segment is full, a new segment is created.
         if table.segment_file_size + total_bytes > DISKTABLE_SEGMENT_SIZE {
-            table.create_new_segment().await?;
+            self.create_segment(table_name, DISKTABLE_PAGE_SIZE).await?;
         }
 
         // 3. If the current page is full, a new page is created.
-        if table.current_page_size + total_bytes > DISKTABLE_PAGE_SIZE {
-            table.create_new_page().await?;
+        if table.current_page_offset + total_bytes > table.segment_file_size {
+            self.increase_segment(table_name, DISKTABLE_PAGE_SIZE)
+                .await?;
         }
 
         // 4. If there is enough space, write the data immediately.
+        // TODO: managing file handler pool
+        let (mut file, segment_id) = self.get_last_segment_file(table_name).await?;
+        file.seek(SeekFrom::Start(table.current_page_offset as u64))
+            .await
+            .map_err(|e| Errors::FileSeekError(format!("Failed to seek file: {}", e)))?;
+        file.write_all(&write_buffer).await.map_err(|e| {
+            Errors::TableSegmentFileWriteError(format!("Failed to write data: {}", e))
+        })?;
 
-        unimplemented!()
+        let position = TableRecordPosition {
+            segment_id,
+            offset: table.current_page_offset,
+        };
+
+        table.current_page_offset += total_bytes;
+
+        Ok(position)
     }
 
     pub async fn find_record(

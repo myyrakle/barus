@@ -16,7 +16,7 @@ pub static GRPC_PORT: LazyLock<u16> = LazyLock::new(|| {
         .unwrap_or(GRPC_DEFAULT_PORT)
 });
 
-pub const WAL_SEGMENT_SIZE: usize = 1024 * 1024 * 32; // 32MB
+pub const WAL_SEGMENT_SIZE: u32 = 1024 * 1024 * 32; // 32MB
 pub const WAL_DIRECTORY: &str = "wal";
 pub const WAL_STATE_PATH: &str = "wal_state.json";
 pub const WAL_RECORD_HEADER_SIZE: usize = 4; // 4 bytes for record length

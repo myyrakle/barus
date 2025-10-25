@@ -2,7 +2,7 @@ use crate::errors;
 use tokio::fs::File;
 
 #[cfg(target_os = "linux")]
-pub async fn file_resize_and_set_zero(file: &mut File, size: u64) -> errors::Result<()> {
+pub async fn file_resize_and_set_zero(file: &mut File, size: u32) -> errors::Result<()> {
     use std::os::fd::{AsFd, AsRawFd};
 
     let file_size = match file.metadata().await {
@@ -37,7 +37,7 @@ pub async fn file_resize_and_set_zero(file: &mut File, size: u64) -> errors::Res
 }
 
 #[cfg(not(target_os = "linux"))]
-pub async fn file_resize_and_set_zero(file: &mut File, size: u64) -> Result<(), errors::Errors> {
+pub async fn file_resize_and_set_zero(file: &mut File, size: u32) -> Result<(), errors::Errors> {
     use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
     let file_size = match file.metadata().await {
