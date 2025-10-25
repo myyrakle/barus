@@ -188,7 +188,7 @@ impl TableSegmentManager {
                 let real_offset = page_start_offset + page_offset as u32;
 
                 // read from header byte
-                let flag_header = page_buffer[page_offset as usize].into();
+                let flag_header = page_buffer[page_offset].into();
                 page_offset += 1;
 
                 // process header byte
@@ -213,7 +213,7 @@ impl TableSegmentManager {
                 let payload = &page_buffer[page_offset..page_offset + size_header as usize];
                 page_offset += size_header as usize;
 
-                let record = self.codec.decode(&payload)?;
+                let record = self.codec.decode(payload)?;
 
                 scan_items.push(ScanSegmentFileItem {
                     state_flags: flag_header,
