@@ -58,6 +58,7 @@ impl CompactionManager {
             std::mem::replace(&mut self.memtable_flush_receiver, fake_receiver);
 
         let disk_manager = self.disktable_manager.clone();
+        let wal_state_write_handles = self.wal_state_write_handles.clone();
 
         tokio::spawn(async move {
             while let Some(event) = memtable_flush_receiver.recv().await {
@@ -65,7 +66,11 @@ impl CompactionManager {
                 log::info!("Memtable flush event received");
 
                 if let Err(error) = disk_manager
-                    .write_memtable(event.memtable, event.wal_state)
+                    .write_memtable(
+                        event.memtable,
+                        event.wal_state,
+                        wal_state_write_handles.clone(),
+                    )
                     .await
                 {
                     log::error!("Failed to write memtable: {}", error);

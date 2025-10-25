@@ -3,8 +3,11 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::{
-    config::TABLES_DIRECTORY, disktable::table::TableInfo, errors, memtable::HashMemtable,
-    wal::state::WALGlobalState,
+    config::TABLES_DIRECTORY,
+    disktable::table::TableInfo,
+    errors,
+    memtable::HashMemtable,
+    wal::state::{WALGlobalState, WALStateWriteHandles},
 };
 
 pub mod index;
@@ -187,9 +190,23 @@ impl DiskTableManager {
     pub async fn write_memtable(
         &self,
         _memtable: HashMap<String, Arc<Mutex<HashMemtable>>>,
-        _wal_state: WALGlobalState,
+        mut wal_state: WALGlobalState,
+        wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     ) -> errors::Result<()> {
-        unimplemented!();
+        // 1.
+        //
+
+        // move checkpoint
+        {
+            wal_state.last_checkpoint_record_id = wal_state.last_record_id;
+            wal_state.last_checkpoint_segment_id = wal_state.last_segment_id.clone();
+            let mut write_handle = wal_state_write_handles.lock().await;
+
+            if let Some(ref mut file) = write_handle.state_file {
+                wal_state.save(file).await?;
+            }
+        }
+        Ok(())
     }
 }
 
