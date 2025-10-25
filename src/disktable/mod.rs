@@ -217,13 +217,10 @@ impl DiskTableManager {
                             .find_record(table_name.as_str(), key.as_str())
                             .await?;
 
-                        match old_position {
-                            Some(old_position) => {
-                                self.segment_manager
-                                    .mark_deleted_record(table_name.as_str(), old_position)
-                                    .await?;
-                            }
-                            None => {}
+                        if let Some(old_position) = old_position {
+                            self.segment_manager
+                                .mark_deleted_record(table_name.as_str(), old_position)
+                                .await?;
                         }
 
                         // insert new data
@@ -249,13 +246,10 @@ impl DiskTableManager {
                             .find_record(table_name.as_str(), key.as_str())
                             .await?;
 
-                        match old_position {
-                            Some(old_position) => {
-                                self.segment_manager
-                                    .mark_deleted_record(table_name.as_str(), old_position)
-                                    .await?;
-                            }
-                            None => {}
+                        if let Some(old_position) = old_position {
+                            self.segment_manager
+                                .mark_deleted_record(table_name.as_str(), old_position)
+                                .await?;
                         }
                     }
                 };
