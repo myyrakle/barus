@@ -64,7 +64,7 @@ pub struct ListSegmentFileItem {
     pub file_size: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, bincode::Decode, bincode::Encode)]
 pub struct TableRecordPosition {
     pub segment_id: TableSegmentID,
     pub offset: u32,
