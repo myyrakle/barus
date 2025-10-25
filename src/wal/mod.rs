@@ -27,7 +27,7 @@ pub struct WALManager {
     pub(crate) state: Arc<Mutex<WALGlobalState>>,
     background_fsync_duration: Option<std::time::Duration>,
     wal_write_handles: Arc<Mutex<WALSegmentWriteHandle>>,
-    wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
+    pub(crate) wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
 }
 
 impl WALManager {
@@ -99,8 +99,7 @@ impl WALManager {
 
     // Load WAL states from the state file
     pub async fn load(&mut self) -> errors::Result<()> {
-        // Load the WAL global state from the state file
-
+        // 1. Load the WAL global state from the state file
         self.state = Arc::new(Mutex::new(WALGlobalState::load(&self.base_path).await?));
 
         {
@@ -113,10 +112,10 @@ impl WALManager {
             );
         }
 
-        // last_record_id & last_segment_file_offset by scanning the last segment file
+        // 2. last_record_id & last_segment_file_offset by scanning the last segment file
         self.recover_state().await?;
 
-        // Load file stream for the current segment
+        // 3. Load file stream for the current segment
         let segment_file_name = self.get_current_segment_file_name().await?;
         let segment_file_path = self.base_path.join(WAL_DIRECTORY).join(segment_file_name);
 
@@ -137,6 +136,7 @@ impl WALManager {
         Ok(())
     }
 
+    // recover state (read wal segments)
     async fn recover_state(&mut self) -> errors::Result<()> {
         let segment_files = self.list_segment_files().await?;
 
@@ -167,20 +167,21 @@ impl WALManager {
         Ok(())
     }
 
+    // Start background task (Disk flush)
     pub fn start_background(&self) -> errors::Result<()> {
         if let Some(duration) = self.background_fsync_duration {
-            let write_state = self.wal_write_handles.clone();
+            let write_handle_mutex = self.wal_write_handles.clone();
 
             tokio::spawn(async move {
                 loop {
                     tokio::time::sleep(duration).await;
 
-                    let state = write_state.lock().await;
+                    let write_handle = write_handle_mutex.lock().await;
 
                     // fsync current segment file
                     #[allow(clippy::collapsible_if)]
-                    if !state.is_empty() {
-                        if let Err(e) = state.flush() {
+                    if !write_handle.is_empty() {
+                        if let Err(e) = write_handle.flush() {
                             eprintln!("Failed to fsync WAL segment file: {}", e);
                             // Handle error (e.g., retry, log, etc.)
                         }
@@ -194,12 +195,12 @@ impl WALManager {
 
     // Flush current WAL segment to disk
     pub async fn flush_wal(&self) -> errors::Result<()> {
-        let state = self.wal_write_handles.lock().await;
+        let write_handle = self.wal_write_handles.lock().await;
 
         // fsync current segment file
         #[allow(clippy::collapsible_if)]
-        if !state.is_empty() {
-            state.flush()?;
+        if !write_handle.is_empty() {
+            write_handle.flush()?;
         }
 
         Ok(())

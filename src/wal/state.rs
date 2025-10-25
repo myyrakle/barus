@@ -85,6 +85,7 @@ impl WALGlobalState {
     }
 }
 
+#[derive(Debug)]
 pub struct WALStateWriteHandles {
     pub(crate) state_file: Option<tokio::fs::File>,
 }
