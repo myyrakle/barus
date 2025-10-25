@@ -336,16 +336,16 @@ impl TableSegmentManager {
     ) -> Arc<RwLock<()>> {
         let file_key = format!("{}/{}", table_name, segment_id.0);
 
-        let table_lock = {
+        
+
+        {
             let mut locks_map = self.file_rw_lock.lock().await;
 
             locks_map
                 .entry(file_key)
                 .or_insert(Arc::new(RwLock::new(())))
                 .clone()
-        };
-
-        table_lock
+        }
     }
 
     pub async fn append_record(
