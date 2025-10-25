@@ -1,12 +1,20 @@
+use std::fmt::Debug;
+
 use bincode::config::{Configuration, Fixint, LittleEndian, NoLimit};
 
 use crate::{disktable::segment::TableRecordPayload, errors};
 
-pub trait TableRecordCodec {
-    fn encode(&self, record: &TableRecordPayload, buf: &mut [u8]) -> errors::Result<usize>;
+pub trait TableRecordCodec: Debug {
+    fn encode(&self, record: &TableRecordPayload) -> errors::Result<Vec<u8>>;
+    fn encode_zero_copy(
+        &self,
+        record: &TableRecordPayload,
+        buf: &mut [u8],
+    ) -> errors::Result<usize>;
     fn decode(&self, data: &[u8]) -> errors::Result<TableRecordPayload>;
 }
 
+#[derive(Debug)]
 pub struct TableRecordBincodeCodec;
 
 impl TableRecordBincodeCodec {
@@ -17,7 +25,16 @@ impl TableRecordBincodeCodec {
 }
 
 impl TableRecordCodec for TableRecordBincodeCodec {
-    fn encode(&self, record: &TableRecordPayload, buf: &mut [u8]) -> errors::Result<usize> {
+    fn encode(&self, record: &TableRecordPayload) -> errors::Result<Vec<u8>> {
+        bincode::encode_to_vec(record, Self::CONFIG)
+            .map_err(|e| errors::Errors::TableRecordEncodeError(e.to_string()))
+    }
+
+    fn encode_zero_copy(
+        &self,
+        record: &TableRecordPayload,
+        buf: &mut [u8],
+    ) -> errors::Result<usize> {
         bincode::encode_into_slice(record, buf, Self::CONFIG)
             .map_err(|e| errors::Errors::TableRecordEncodeError(e.to_string()))
     }

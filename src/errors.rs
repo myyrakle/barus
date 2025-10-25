@@ -21,9 +21,13 @@ pub enum Errors {
 
     TableCreationError(String),
     FileOpenError(String),
+    FileMetadataError(String),
+    FileSeekError(String),
+    FileReadError(String),
     TableListFailed(String),
     TableGetFailed(String),
     WALStateFileHandleNotFound,
+    UnknownTableRecordHeaderFlag,
 
     // User Bad Request Errors
     TableNotFound(String),
@@ -72,6 +76,9 @@ impl std::fmt::Display for Errors {
             Errors::KeyIsEmpty => write!(f, "Key Is Empty"),
             Errors::ValueSizeTooLarge => write!(f, "Value Size Too Large"),
             Errors::FileOpenError(msg) => write!(f, "File Open Error: {}", msg),
+            Errors::FileMetadataError(msg) => write!(f, "File Metadata Error: {}", msg),
+            Errors::FileSeekError(msg) => write!(f, "File Seek Error: {}", msg),
+            Errors::FileReadError(msg) => write!(f, "File Read Error: {}", msg),
             Errors::MemtableFlushAlreadyInProgress => {
                 write!(f, "Memtable Flush Already In Progress")
             }
@@ -86,6 +93,9 @@ impl std::fmt::Display for Errors {
             }
             Errors::TableRecordEncodeError(msg) => {
                 write!(f, "Table Record Encode Error: {}", msg)
+            }
+            Errors::UnknownTableRecordHeaderFlag => {
+                write!(f, "Unknown Table Record Header Flag")
             }
         }
     }
