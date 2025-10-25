@@ -23,6 +23,7 @@ pub mod encode;
 pub mod id;
 pub mod record;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum RecordStateFlags {
     Nothing,
@@ -63,6 +64,7 @@ pub struct ListSegmentFileItem {
     pub file_size: u32,
 }
 
+#[derive(Debug, Clone)]
 pub struct TableRecordPosition {
     pub segment_id: TableSegmentID,
     pub offset: u32,
@@ -72,6 +74,13 @@ pub struct TableRecordPosition {
 pub struct TableRecordPayload {
     pub key: String,
     pub value: String,
+}
+
+#[derive(Debug)]
+pub struct ScanSegmentFileItem {
+    pub state_flags: RecordStateFlags,
+    pub position: TableRecordPosition,
+    pub payload: TableRecordPayload,
 }
 
 impl TableSegmentManager {
@@ -127,6 +136,116 @@ impl TableSegmentManager {
             .sort_by(|file1, file2| file1.file_name.as_str().cmp(file2.file_name.as_str()));
 
         Ok(segment_files)
+    }
+
+    pub async fn scan_segment_file(
+        &self,
+        table_name: &str,
+        segment_file_name: &str,
+    ) -> errors::Result<Vec<ScanSegmentFileItem>> {
+        let file_path = self
+            .base_path
+            .join(TABLES_DIRECTORY)
+            .join(table_name)
+            .join(segment_file_name);
+
+        let mut file = File::open(&file_path).await.map_err(|e| {
+            Errors::FileOpenError(format!(
+                "Failed to open file '{}': {}",
+                file_path.display(),
+                e
+            ))
+        })?;
+        let metadata = file.metadata().await.map_err(|e| {
+            Errors::FileMetadataError(format!(
+                "Failed to get metadata for file '{}': {}",
+                file_path.display(),
+                e
+            ))
+        })?;
+        let file_size = metadata.len() as u32;
+
+        let total_page_number = file_size / DISKTABLE_PAGE_SIZE;
+
+        let mut scan_items = Vec::new();
+
+        for page_index in 0..total_page_number {
+            let page_start_offset = page_index * DISKTABLE_PAGE_SIZE;
+            file.seek(SeekFrom::Start(page_start_offset as u64))
+                .await
+                .map_err(|e| {
+                    Errors::FileSeekError(format!(
+                        "Failed to seek to page {} in file '{}': {}",
+                        page_index,
+                        file_path.display(),
+                        e
+                    ))
+                })?;
+
+            let mut page_offset = 0;
+
+            while page_offset < DISKTABLE_PAGE_SIZE {
+                let real_offset = page_start_offset + page_offset;
+
+                // read from header byte
+                let flag_header = file
+                    .read_u8()
+                    .await
+                    .map_err(|e| {
+                        Errors::FileReadError(format!(
+                            "Failed to read header byte at offset {} in file '{}': {}",
+                            real_offset,
+                            file_path.display(),
+                            e
+                        ))
+                    })?
+                    .into();
+
+                // process header byte
+                match flag_header {
+                    RecordStateFlags::Nothing => {
+                        // end of data
+                        break;
+                    }
+                    RecordStateFlags::Alive | RecordStateFlags::Deleted => {}
+                    RecordStateFlags::Unknown => return Err(Errors::UnknownTableRecordHeaderFlag),
+                }
+
+                let size_header = file.read_u32().await.map_err(|e| {
+                    Errors::FileReadError(format!(
+                        "Failed to read size header at offset {} in file '{}': {}",
+                        real_offset + 1,
+                        file_path.display(),
+                        e
+                    ))
+                })?;
+
+                let mut buffer = vec![0; size_header as usize];
+                file.read_exact(&mut buffer).await.map_err(|e| {
+                    Errors::FileReadError(format!(
+                        "Failed to read data at offset {} in file '{}': {}",
+                        real_offset + TABLE_SEGMENT_RECORD_HEADER_SIZE,
+                        file_path.display(),
+                        e
+                    ))
+                })?;
+
+                let record = self.codec.decode(&buffer)?;
+
+                scan_items.push(ScanSegmentFileItem {
+                    state_flags: flag_header,
+                    position: TableRecordPosition {
+                        segment_id: TableSegmentID::try_from(segment_file_name).unwrap(),
+                        offset: real_offset,
+                    },
+                    payload: record,
+                });
+
+                page_offset += TABLE_SEGMENT_RECORD_HEADER_SIZE + size_header;
+            }
+        }
+
+        Ok(scan_items)
     }
 
     pub async fn set_table_names(&self, table_names: Vec<String>) -> errors::Result<()> {
