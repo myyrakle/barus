@@ -14,13 +14,11 @@ pub mod index;
 pub mod segment;
 pub mod table;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DiskTableManager {
     #[allow(dead_code)]
     base_path: std::path::PathBuf,
-    #[allow(dead_code)]
     index_manager: index::IndexManager,
-    #[allow(dead_code)]
     segment_manager: segment::TableSegmentManager,
 }
 

@@ -16,12 +16,19 @@ pub enum Errors {
     TableSegmentIDParseError(String),
     TableSegmentFileCreateError(String),
     TableSegmentFileOpenError(String),
+    TableSegmentFileWriteError(String),
+    TableRecordDecodeError(String),
+    TableRecordEncodeError(String),
 
     TableCreationError(String),
     FileOpenError(String),
+    FileMetadataError(String),
+    FileSeekError(String),
+    FileReadError(String),
     TableListFailed(String),
     TableGetFailed(String),
     WALStateFileHandleNotFound,
+    UnknownTableRecordHeaderFlag,
 
     // User Bad Request Errors
     TableNotFound(String),
@@ -57,6 +64,9 @@ impl std::fmt::Display for Errors {
             Errors::TableSegmentFileCreateError(msg) => {
                 write!(f, "Table Segment File Create Error: {}", msg)
             }
+            Errors::TableSegmentFileWriteError(msg) => {
+                write!(f, "Table Segment File Write Error: {}", msg)
+            }
             Errors::TableNotFound(msg) => write!(f, "Table Not Found: {}", msg),
             Errors::ValueNotFound(msg) => write!(f, "Value Not Found: {}", msg),
             Errors::TableAlreadyExists(msg) => write!(f, "Table Already Exists: {}", msg),
@@ -70,6 +80,9 @@ impl std::fmt::Display for Errors {
             Errors::KeyIsEmpty => write!(f, "Key Is Empty"),
             Errors::ValueSizeTooLarge => write!(f, "Value Size Too Large"),
             Errors::FileOpenError(msg) => write!(f, "File Open Error: {}", msg),
+            Errors::FileMetadataError(msg) => write!(f, "File Metadata Error: {}", msg),
+            Errors::FileSeekError(msg) => write!(f, "File Seek Error: {}", msg),
+            Errors::FileReadError(msg) => write!(f, "File Read Error: {}", msg),
             Errors::MemtableFlushAlreadyInProgress => {
                 write!(f, "Memtable Flush Already In Progress")
             }
@@ -78,6 +91,15 @@ impl std::fmt::Display for Errors {
             }
             Errors::WALStateFileHandleNotFound => {
                 write!(f, "WAL State File Handle Not Found")
+            }
+            Errors::TableRecordDecodeError(msg) => {
+                write!(f, "Table Record Decode Error: {}", msg)
+            }
+            Errors::TableRecordEncodeError(msg) => {
+                write!(f, "Table Record Encode Error: {}", msg)
+            }
+            Errors::UnknownTableRecordHeaderFlag => {
+                write!(f, "Unknown Table Record Header Flag")
             }
         }
     }
