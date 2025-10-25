@@ -15,7 +15,7 @@ use crate::{
 #[derive(Default)]
 pub struct MemtableFlushEvent {
     pub memtable: HashMap<String, Arc<Mutex<HashMemtable>>>,
-    pub wal_state: WALGlobalState,
+    pub wal_state: Arc<Mutex<WALGlobalState>>,
 }
 
 #[derive(Debug)]

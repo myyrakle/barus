@@ -200,7 +200,7 @@ impl DiskTableManager {
     pub async fn write_memtable(
         &self,
         memtable: HashMap<String, Arc<Mutex<HashMemtable>>>,
-        mut wal_state: WALGlobalState,
+        wal_state: Arc<Mutex<WALGlobalState>>,
         wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     ) -> errors::Result<()> {
         // 1. write memtable to disk
@@ -267,6 +267,8 @@ impl DiskTableManager {
 
         // 2. move WAL checkpoint
         {
+            let mut wal_state = wal_state.lock().await;
+
             wal_state.last_checkpoint_record_id = wal_state.last_record_id;
             wal_state.last_checkpoint_segment_id = wal_state.last_segment_id.clone();
             let mut write_handle = wal_state_write_handles.lock().await;

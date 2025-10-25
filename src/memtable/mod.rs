@@ -54,7 +54,7 @@ impl MemtableManager {
             memtable_size_soft_limit,
             memtable_size_hard_limit,
             memtable_flush_sender: fake_sender,
-            wal_state: wal_manager.state.clone(),
+            wal_state: wal_manager.wal_state.clone(),
         }
     }
 
@@ -150,7 +150,6 @@ impl MemtableManager {
         {
             self.memtable_current_size.store(0, Ordering::SeqCst);
 
-            let wal_state = self.wal_state.lock().await.clone();
             {
                 let mut memtable_map = self.memtable_map.write().await;
                 let mut flushing_memtable = self.flushing_memtable_map.write().await;
@@ -164,7 +163,7 @@ impl MemtableManager {
                 .memtable_flush_sender
                 .send(MemtableFlushEvent {
                     memtable: flushing_memtable,
-                    wal_state,
+                    wal_state: self.wal_state.clone(),
                 })
                 .await;
 
