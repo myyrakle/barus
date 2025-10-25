@@ -348,6 +348,7 @@ impl TableSegmentManager {
         }
     }
 
+    // Appends a record to the segment file.
     pub async fn append_record(
         &self,
         table_name: &str,
@@ -418,6 +419,7 @@ impl TableSegmentManager {
         Ok(position)
     }
 
+    // Finds a record in the segment file.
     pub async fn find_record(
         &self,
         table_name: &str,
@@ -458,6 +460,7 @@ impl TableSegmentManager {
         Ok(record)
     }
 
+    /// Marks a record as deleted in the segment file. (not real delete)
     pub async fn mark_deleted_record(
         &self,
         table_name: &str,
