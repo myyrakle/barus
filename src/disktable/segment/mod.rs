@@ -336,8 +336,6 @@ impl TableSegmentManager {
     ) -> Arc<RwLock<()>> {
         let file_key = format!("{}/{}", table_name, segment_id.0);
 
-        
-
         {
             let mut locks_map = self.file_rw_lock.lock().await;
 
@@ -433,7 +431,7 @@ impl TableSegmentManager {
         let segment_file_lock = self
             .lock_segment_file(table_name, &position.segment_id)
             .await;
-        let _read_lock = segment_file_lock.read().await;
+        let read_lock = segment_file_lock.read().await;
 
         let mut file = self
             .get_segment_file(table_name, &position.segment_id)
@@ -457,6 +455,8 @@ impl TableSegmentManager {
         file.read_exact(&mut buffer)
             .await
             .map_err(|e| Errors::FileReadError(format!("Failed to read data: {}", e)))?;
+
+        drop(read_lock);
 
         let record = self.codec.decode(&buffer)?;
 
