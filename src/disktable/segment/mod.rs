@@ -7,7 +7,10 @@ use tokio::{
 };
 
 use crate::{
-    config::{DISKTABLE_PAGE_SIZE, DISKTABLE_SEGMENT_SIZE, TABLES_DIRECTORY},
+    config::{
+        DISKTABLE_PAGE_SIZE, DISKTABLE_SEGMENT_SIZE, TABLE_SEGMENT_RECORD_HEADER_SIZE,
+        TABLES_DIRECTORY,
+    },
     disktable::segment::{
         encode::{TableRecordBincodeCodec, TableRecordCodec},
         id::TableSegmentID,
@@ -182,7 +185,7 @@ impl TableSegmentManager {
         let mut offset = file_size - DISKTABLE_PAGE_SIZE;
 
         while offset < file_size {
-            let flag_header_offset = offset as u64 + 1;
+            let flag_header_offset = offset as u64;
 
             file.seek(SeekFrom::Start(flag_header_offset))
                 .await
@@ -228,7 +231,7 @@ impl TableSegmentManager {
                 ))
             })?;
 
-            offset += size_header;
+            offset += TABLE_SEGMENT_RECORD_HEADER_SIZE + size_header;
         }
 
         Ok(TableSegmentStatePerTable {
