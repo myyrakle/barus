@@ -191,7 +191,15 @@ impl DiskTableManager {
         Ok(())
     }
 
-    pub async fn delete_value(&self, _table: String, _key: String) -> errors::Result<()> {
+    pub async fn delete_value(&self, table_name: &str, key: &str) -> errors::Result<()> {
+        let old_position = self.index_manager.find_record(table_name, key).await?;
+
+        if let Some(old_position) = old_position {
+            self.segment_manager
+                .mark_deleted_record(table_name, old_position)
+                .await?;
+        }
+
         Ok(())
     }
 
@@ -210,16 +218,7 @@ impl DiskTableManager {
                     // Insert/Update Process
                     Some(value) => {
                         // delete old data if exists
-                        let old_position = self
-                            .index_manager
-                            .find_record(table_name.as_str(), key.as_str())
-                            .await?;
-
-                        if let Some(old_position) = old_position {
-                            self.segment_manager
-                                .mark_deleted_record(table_name.as_str(), old_position)
-                                .await?;
-                        }
+                        self.delete_value(table_name.as_str(), key.as_str()).await?;
 
                         // insert new data
                         let position = self
@@ -239,16 +238,7 @@ impl DiskTableManager {
                     }
                     // Delete Process
                     None => {
-                        let old_position = self
-                            .index_manager
-                            .find_record(table_name.as_str(), key.as_str())
-                            .await?;
-
-                        if let Some(old_position) = old_position {
-                            self.segment_manager
-                                .mark_deleted_record(table_name.as_str(), old_position)
-                                .await?;
-                        }
+                        self.delete_value(table_name.as_str(), key.as_str()).await?;
                     }
                 };
             }
