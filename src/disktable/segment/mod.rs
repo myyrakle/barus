@@ -23,6 +23,7 @@ pub mod encode;
 pub mod id;
 pub mod record;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum RecordStateFlags {
     Nothing,
@@ -63,6 +64,7 @@ pub struct ListSegmentFileItem {
     pub file_size: u32,
 }
 
+#[derive(Debug, Clone)]
 pub struct TableRecordPosition {
     pub segment_id: TableSegmentID,
     pub offset: u32,
@@ -72,6 +74,13 @@ pub struct TableRecordPosition {
 pub struct TableRecordPayload {
     pub key: String,
     pub value: String,
+}
+
+#[derive(Debug)]
+pub struct ScanSegmentFileItem {
+    pub state_flags: RecordStateFlags,
+    pub position: TableRecordPosition,
+    pub payload: TableRecordPayload,
 }
 
 impl TableSegmentManager {
@@ -127,6 +136,97 @@ impl TableSegmentManager {
             .sort_by(|file1, file2| file1.file_name.as_str().cmp(file2.file_name.as_str()));
 
         Ok(segment_files)
+    }
+
+    pub async fn scan_segment_file(
+        &self,
+        table_name: &str,
+        segment_file_name: &str,
+    ) -> errors::Result<Vec<ScanSegmentFileItem>> {
+        let file_path = self
+            .base_path
+            .join(TABLES_DIRECTORY)
+            .join(table_name)
+            .join(segment_file_name);
+
+        let mut file = File::open(&file_path).await.map_err(|e| {
+            Errors::FileOpenError(format!(
+                "Failed to open file '{}': {}",
+                file_path.display(),
+                e
+            ))
+        })?;
+        let metadata = file.metadata().await.map_err(|e| {
+            Errors::FileMetadataError(format!(
+                "Failed to get metadata for file '{}': {}",
+                file_path.display(),
+                e
+            ))
+        })?;
+        let file_size = metadata.len() as u32;
+
+        let total_page_number = file_size / DISKTABLE_PAGE_SIZE;
+
+        let mut scan_items = Vec::new();
+
+        let mut page_buffer = vec![0u8; DISKTABLE_PAGE_SIZE as usize];
+
+        for page_index in 0..total_page_number {
+            file.read_exact(&mut page_buffer).await.map_err(|e| {
+                Errors::FileReadError(format!(
+                    "Failed to read page {} in file '{}': {}",
+                    page_index,
+                    file_path.display(),
+                    e
+                ))
+            })?;
+
+            let mut page_offset = 0_usize;
+
+            while page_offset < DISKTABLE_PAGE_SIZE as usize {
+                let page_start_offset = page_index * DISKTABLE_PAGE_SIZE;
+                let real_offset = page_start_offset + page_offset as u32;
+
+                // read from header byte
+                let flag_header = page_buffer[page_offset].into();
+                page_offset += 1;
+
+                // process header byte
+                match flag_header {
+                    RecordStateFlags::Nothing => {
+                        // end of data
+                        break;
+                    }
+                    RecordStateFlags::Alive | RecordStateFlags::Deleted => {}
+                    RecordStateFlags::Unknown => return Err(Errors::UnknownTableRecordHeaderFlag),
+                }
+
+                let size_header_bytes = [
+                    page_buffer[page_offset],
+                    page_buffer[page_offset + 1],
+                    page_buffer[page_offset + 2],
+                    page_buffer[page_offset + 3],
+                ];
+                let size_header = u32::from_be_bytes(size_header_bytes);
+                page_offset += 4;
+
+                let payload = &page_buffer[page_offset..page_offset + size_header as usize];
+                page_offset += size_header as usize;
+
+                let record = self.codec.decode(payload)?;
+
+                scan_items.push(ScanSegmentFileItem {
+                    state_flags: flag_header,
+                    position: TableRecordPosition {
+                        segment_id: TableSegmentID::try_from(segment_file_name).unwrap_or_default(),
+                        offset: real_offset,
+                    },
+                    payload: record,
+                });
+            }
+        }
+
+        Ok(scan_items)
     }
 
     pub async fn set_table_names(&self, table_names: Vec<String>) -> errors::Result<()> {
