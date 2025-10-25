@@ -169,37 +169,27 @@ impl TableSegmentManager {
 
         let mut scan_items = Vec::new();
 
+        let mut page_buffer = vec![0u8; DISKTABLE_PAGE_SIZE as usize];
+
         for page_index in 0..total_page_number {
-            let page_start_offset = page_index * DISKTABLE_PAGE_SIZE;
-            file.seek(SeekFrom::Start(page_start_offset as u64))
-                .await
-                .map_err(|e| {
-                    Errors::FileSeekError(format!(
-                        "Failed to seek to page {} in file '{}': {}",
-                        page_index,
-                        file_path.display(),
-                        e
-                    ))
-                })?;
+            file.read_exact(&mut page_buffer).await.map_err(|e| {
+                Errors::FileReadError(format!(
+                    "Failed to read page {} in file '{}': {}",
+                    page_index,
+                    file_path.display(),
+                    e
+                ))
+            })?;
 
-            let mut page_offset = 0;
+            let mut page_offset = 0_usize;
 
-            while page_offset < DISKTABLE_PAGE_SIZE {
-                let real_offset = page_start_offset + page_offset;
+            while page_offset < DISKTABLE_PAGE_SIZE as usize {
+                let page_start_offset = page_index * DISKTABLE_PAGE_SIZE;
+                let real_offset = page_start_offset + page_offset as u32;
 
                 // read from header byte
-                let flag_header = file
-                    .read_u8()
-                    .await
-                    .map_err(|e| {
-                        Errors::FileReadError(format!(
-                            "Failed to read header byte at offset {} in file '{}': {}",
-                            real_offset,
-                            file_path.display(),
-                            e
-                        ))
-                    })?
-                    .into();
+                let flag_header = page_buffer[page_offset as usize].into();
+                page_offset += 1;
 
                 // process header byte
                 match flag_header {
@@ -211,26 +201,19 @@ impl TableSegmentManager {
                     RecordStateFlags::Unknown => return Err(Errors::UnknownTableRecordHeaderFlag),
                 }
 
-                let size_header = file.read_u32().await.map_err(|e| {
-                    Errors::FileReadError(format!(
-                        "Failed to read size header at offset {} in file '{}': {}",
-                        real_offset + 1,
-                        file_path.display(),
-                        e
-                    ))
-                })?;
+                let size_header_bytes = [
+                    page_buffer[page_offset],
+                    page_buffer[page_offset + 1],
+                    page_buffer[page_offset + 2],
+                    page_buffer[page_offset + 3],
+                ];
+                let size_header = u32::from_be_bytes(size_header_bytes);
+                page_offset += 4;
 
-                let mut buffer = vec![0; size_header as usize];
-                file.read_exact(&mut buffer).await.map_err(|e| {
-                    Errors::FileReadError(format!(
-                        "Failed to read data at offset {} in file '{}': {}",
-                        real_offset + TABLE_SEGMENT_RECORD_HEADER_SIZE,
-                        file_path.display(),
-                        e
-                    ))
-                })?;
+                let payload = &page_buffer[page_offset..page_offset + size_header as usize];
+                page_offset += size_header as usize;
 
-                let record = self.codec.decode(&buffer)?;
+                let record = self.codec.decode(&payload)?;
 
                 scan_items.push(ScanSegmentFileItem {
                     state_flags: flag_header,
@@ -240,8 +223,6 @@ impl TableSegmentManager {
                     },
                     payload: record,
                 });
-
-                page_offset += TABLE_SEGMENT_RECORD_HEADER_SIZE + size_header;
             }
         }
 
