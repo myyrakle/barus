@@ -310,7 +310,7 @@ pub struct MemtableEntry {
 
 #[derive(Debug)]
 pub struct HashMemtable {
-    table: HashMap<String, MemtableEntry>,
+    pub(crate) table: HashMap<String, MemtableEntry>,
 }
 
 pub const MEMTABLE_CAPACITY: usize = 100000;

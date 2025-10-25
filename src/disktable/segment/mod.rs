@@ -22,9 +22,26 @@ pub struct TableSegmentManager {
     tables_map: Arc<Mutex<HashMap<String, TableSegmentStatusPerTable>>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct TableSegmentStatusPerTable {
+    last_segment_id: TableSegmentID,
+    file_size: u64,
+}
+
 pub struct ListSegmentFileItem {
     pub file_name: String,
     pub file_size: u64,
+}
+
+pub struct TableRecordPosition {
+    pub segment_id: TableSegmentID,
+    pub offset: u64,
+}
+
+#[derive(Debug, Clone, bincode::Decode, bincode::Encode)]
+pub struct TableRecordPayload {
+    pub key: String,
+    pub value: String,
 }
 
 impl TableSegmentManager {
@@ -175,23 +192,26 @@ impl TableSegmentManager {
         Ok(file)
     }
 
-    pub async fn write_records(
+    pub async fn append_record(
         &self,
         _table_name: &str,
-        _records: Vec<Vec<u8>>,
-    ) -> Result<(), Errors> {
+        _record: TableRecordPayload,
+    ) -> Result<TableRecordPosition, Errors> {
         // Implementation goes here
         unimplemented!()
     }
 
-    pub async fn mark_deleted(&self, _table_name: &str, _offset: u64) -> Result<(), Errors> {
+    pub async fn find_record(
+        &self,
+        _table_name: &str,
+        _position: TableRecordPosition,
+    ) -> Result<TableRecordPayload, Errors> {
         // Implementation goes here
         unimplemented!()
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct TableSegmentStatusPerTable {
-    last_segment_id: TableSegmentID,
-    file_size: u64,
+    pub async fn mark_deleted_record(&self, _table_name: &str, _offset: u64) -> Result<(), Errors> {
+        // Implementation goes here
+        unimplemented!()
+    }
 }

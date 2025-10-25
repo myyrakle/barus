@@ -1,3 +1,5 @@
+use crate::{disktable::segment::TableRecordPosition, errors::Errors};
+
 #[derive(Debug, Clone)]
 pub struct IndexManager {}
 
@@ -10,5 +12,29 @@ impl Default for IndexManager {
 impl IndexManager {
     pub fn new() -> Self {
         Self {}
+    }
+
+    pub async fn add_record(
+        &self,
+        _table_name: &str,
+        _key: &str,
+        _position: &TableRecordPosition,
+    ) -> Result<(), Errors> {
+        // Implementation goes here
+        unimplemented!()
+    }
+
+    pub async fn delete_record(&self, _table_name: &str, _key: &str) -> Result<(), Errors> {
+        // Implementation goes here
+        unimplemented!()
+    }
+
+    pub async fn find_record(
+        &self,
+        _table_name: &str,
+        _key: &str,
+    ) -> Result<TableRecordPosition, Errors> {
+        // Implementation goes here
+        unimplemented!()
     }
 }

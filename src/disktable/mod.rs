@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     config::TABLES_DIRECTORY,
-    disktable::table::TableInfo,
+    disktable::{segment::TableRecordPayload, table::TableInfo},
     errors,
     memtable::HashMemtable,
     wal::state::{WALGlobalState, WALStateWriteHandles},
@@ -180,30 +180,63 @@ impl DiskTableManager {
         Ok(())
     }
 
-    pub async fn get(&self, _table: &str, _key: &str) -> errors::Result<DisktableGetResult> {
+    pub async fn get_value(&self, _table: &str, _key: &str) -> errors::Result<DisktableGetResult> {
         Ok(DisktableGetResult::Found("disk value".to_string()))
     }
 
-    pub async fn put(&self, _table: String, _key: String, _value: String) -> errors::Result<()> {
+    pub async fn put_value(
+        &self,
+        _table: String,
+        _key: String,
+        _value: String,
+    ) -> errors::Result<()> {
         Ok(())
     }
 
-    pub async fn delete(&self, _table: String, _key: String) -> errors::Result<()> {
+    pub async fn delete_value(&self, _table: String, _key: String) -> errors::Result<()> {
         Ok(())
     }
 
     pub async fn write_memtable(
         &self,
-        _memtable: HashMap<String, Arc<Mutex<HashMemtable>>>,
+        memtable: HashMap<String, Arc<Mutex<HashMemtable>>>,
         mut wal_state: WALGlobalState,
         wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     ) -> errors::Result<()> {
-        // 1.
-        for (table_name, memtable) in _memtable {
+        // 1. write memtable to disk
+        for (table_name, memtable) in memtable {
             let mut memtable = memtable.lock().await;
+
+            for (key, memtable_entry) in memtable.table.iter() {
+                // 1.1. Skip Deleted Data
+                let value = match &memtable_entry.value {
+                    Some(value) => value.to_owned(),
+                    None => continue,
+                };
+
+                // 1.2. Table Segment Write
+                let position = self
+                    .segment_manager
+                    .append_record(
+                        table_name.as_str(),
+                        TableRecordPayload {
+                            key: key.clone(),
+                            value,
+                        },
+                    )
+                    .await?;
+
+                // 1.3. Table Segment Write
+                self.index_manager
+                    .add_record(table_name.as_str(), key.as_str(), &position)
+                    .await?;
+            }
+
+            // 1.3. destroy memtable. now, we can find data in disk
+            memtable.table.clear();
         }
 
-        // move checkpoint
+        // 2. move WAL checkpoint
         {
             wal_state.last_checkpoint_record_id = wal_state.last_record_id;
             wal_state.last_checkpoint_segment_id = wal_state.last_segment_id.clone();

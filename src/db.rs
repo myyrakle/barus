@@ -293,7 +293,7 @@ impl DBEngine {
 
         // 4. Try to get from disk area (not implemented yet)
         {
-            let disktable_result = self.disktable_manager.get(table, key).await?;
+            let disktable_result = self.disktable_manager.get_value(table, key).await?;
 
             match disktable_result {
                 DisktableGetResult::Found(value) => Ok(GetResponse { value }),
