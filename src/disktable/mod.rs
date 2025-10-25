@@ -182,12 +182,28 @@ impl DiskTableManager {
         Ok(DisktableGetResult::Found("disk value".to_string()))
     }
 
-    pub async fn put_value(
+    pub async fn insert_value(
         &self,
-        _table: String,
-        _key: String,
-        _value: String,
+        table_name: &str,
+        key: &str,
+        value: &str,
     ) -> errors::Result<()> {
+        // insert new data
+        let position = self
+            .segment_manager
+            .append_record(
+                table_name,
+                TableRecordPayload {
+                    key: key.to_owned(),
+                    value: value.to_owned(),
+                },
+            )
+            .await?;
+
+        self.index_manager
+            .add_record(table_name, key, &position)
+            .await?;
+
         Ok(())
     }
 
@@ -221,19 +237,7 @@ impl DiskTableManager {
                         self.delete_value(table_name.as_str(), key.as_str()).await?;
 
                         // insert new data
-                        let position = self
-                            .segment_manager
-                            .append_record(
-                                table_name.as_str(),
-                                TableRecordPayload {
-                                    key: key.clone(),
-                                    value: value.clone(),
-                                },
-                            )
-                            .await?;
-
-                        self.index_manager
-                            .add_record(table_name.as_str(), key.as_str(), &position)
+                        self.insert_value(table_name.as_str(), key.as_str(), value.as_str())
                             .await?;
                     }
                     // Delete Process
