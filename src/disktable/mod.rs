@@ -208,28 +208,57 @@ impl DiskTableManager {
             let mut memtable = memtable.lock().await;
 
             for (key, memtable_entry) in memtable.table.iter() {
-                // 1.1. Skip Deleted Data
-                let value = match &memtable_entry.value {
-                    Some(value) => value.to_owned(),
-                    None => continue,
+                match &memtable_entry.value {
+                    // Insert/Update Process
+                    Some(value) => {
+                        // delete old data if exists
+                        let old_position = self
+                            .index_manager
+                            .find_record(table_name.as_str(), key.as_str())
+                            .await?;
+
+                        match old_position {
+                            Some(old_position) => {
+                                self.segment_manager
+                                    .mark_deleted_record(table_name.as_str(), old_position)
+                                    .await?;
+                            }
+                            None => {}
+                        }
+
+                        // insert new data
+                        let position = self
+                            .segment_manager
+                            .append_record(
+                                table_name.as_str(),
+                                TableRecordPayload {
+                                    key: key.clone(),
+                                    value: value.clone(),
+                                },
+                            )
+                            .await?;
+
+                        self.index_manager
+                            .add_record(table_name.as_str(), key.as_str(), &position)
+                            .await?;
+                    }
+                    // Delete Process
+                    None => {
+                        let old_position = self
+                            .index_manager
+                            .find_record(table_name.as_str(), key.as_str())
+                            .await?;
+
+                        match old_position {
+                            Some(old_position) => {
+                                self.segment_manager
+                                    .mark_deleted_record(table_name.as_str(), old_position)
+                                    .await?;
+                            }
+                            None => {}
+                        }
+                    }
                 };
-
-                // 1.2. Table Segment Write
-                let position = self
-                    .segment_manager
-                    .append_record(
-                        table_name.as_str(),
-                        TableRecordPayload {
-                            key: key.clone(),
-                            value,
-                        },
-                    )
-                    .await?;
-
-                // 1.3. Table Segment Write
-                self.index_manager
-                    .add_record(table_name.as_str(), key.as_str(), &position)
-                    .await?;
             }
 
             // 1.3. destroy memtable. now, we can find data in disk

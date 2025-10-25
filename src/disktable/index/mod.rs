@@ -29,11 +29,21 @@ impl IndexManager {
         unimplemented!()
     }
 
+    pub async fn update_record(
+        &self,
+        _table_name: &str,
+        _key: &str,
+        _position: &TableRecordPosition,
+    ) -> Result<(), Errors> {
+        // Implementation goes here
+        unimplemented!()
+    }
+
     pub async fn find_record(
         &self,
         _table_name: &str,
         _key: &str,
-    ) -> Result<TableRecordPosition, Errors> {
+    ) -> Result<Option<TableRecordPosition>, Errors> {
         // Implementation goes here
         unimplemented!()
     }

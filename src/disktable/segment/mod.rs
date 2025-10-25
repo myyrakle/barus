@@ -210,7 +210,11 @@ impl TableSegmentManager {
         unimplemented!()
     }
 
-    pub async fn mark_deleted_record(&self, _table_name: &str, _offset: u64) -> Result<(), Errors> {
+    pub async fn mark_deleted_record(
+        &self,
+        _table_name: &str,
+        _position: TableRecordPosition,
+    ) -> Result<(), Errors> {
         // Implementation goes here
         unimplemented!()
     }
