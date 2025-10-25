@@ -25,6 +25,7 @@ pub enum Errors {
     FileMetadataError(String),
     FileSeekError(String),
     FileReadError(String),
+    FileWriteError(String),
     TableListFailed(String),
     TableGetFailed(String),
     WALStateFileHandleNotFound,
@@ -83,6 +84,7 @@ impl std::fmt::Display for Errors {
             Errors::FileMetadataError(msg) => write!(f, "File Metadata Error: {}", msg),
             Errors::FileSeekError(msg) => write!(f, "File Seek Error: {}", msg),
             Errors::FileReadError(msg) => write!(f, "File Read Error: {}", msg),
+            Errors::FileWriteError(msg) => write!(f, "File Write Error: {}", msg),
             Errors::MemtableFlushAlreadyInProgress => {
                 write!(f, "Memtable Flush Already In Progress")
             }

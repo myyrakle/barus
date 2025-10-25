@@ -329,6 +329,8 @@ impl TableSegmentManager {
         Ok(file)
     }
 
+    // Provides protection for segment areas that have already been created
+    // (`append` is excluded from the effect).
     async fn lock_segment_file(
         &self,
         table_name: &str,
@@ -399,19 +401,12 @@ impl TableSegmentManager {
             .get_segment_file(table_name, &table.last_segment_id)
             .await?;
 
-        let segment_file_lock = self
-            .lock_segment_file(table_name, &table.last_segment_id)
-            .await;
-        let write_lock = segment_file_lock.write().await;
-
         file.seek(SeekFrom::Start(table.current_page_offset as u64))
             .await
             .map_err(|e| Errors::FileSeekError(format!("Failed to seek file: {}", e)))?;
         file.write_all(&write_buffer).await.map_err(|e| {
             Errors::TableSegmentFileWriteError(format!("Failed to write data: {}", e))
         })?;
-
-        drop(write_lock);
 
         let position = TableRecordPosition {
             segment_id: table.last_segment_id.clone(),
@@ -465,10 +460,28 @@ impl TableSegmentManager {
 
     pub async fn mark_deleted_record(
         &self,
-        _table_name: &str,
-        _position: TableRecordPosition,
+        table_name: &str,
+        position: TableRecordPosition,
     ) -> Result<(), Errors> {
-        // Implementation goes here
-        unimplemented!()
+        let segment_file_lock = self
+            .lock_segment_file(table_name, &position.segment_id)
+            .await;
+        let _read_lock = segment_file_lock.read().await;
+
+        let mut file = self
+            .get_segment_file(table_name, &position.segment_id)
+            .await?;
+
+        file.seek(SeekFrom::Start(position.offset as u64))
+            .await
+            .map_err(|e| Errors::FileSeekError(format!("Failed to seek file: {}", e)))?;
+
+        let delete_flag = RecordStateFlags::Deleted as u8;
+
+        file.write_u8(delete_flag)
+            .await
+            .map_err(|e| Errors::FileWriteError(format!("Failed to write delete flag: {}", e)))?;
+
+        Ok(())
     }
 }
