@@ -242,21 +242,10 @@ impl TableSegmentManager {
     pub async fn get_last_segment_file(
         &self,
         table_name: &str,
-    ) -> errors::Result<(File, TableSegmentID)> {
-        let table_status = {
-            let table_map = self.tables_map.lock().await;
-
-            table_map
-                .get(table_name)
-                .map(ToOwned::to_owned)
-                .ok_or(Errors::TableNotFound(format!(
-                    "Table '{}' not found",
-                    table_name
-                )))?
-        };
-
+        table_state: &TableSegmentStatePerTable,
+    ) -> errors::Result<File> {
         // 2. get segment file
-        let segment_filename: String = (&table_status.last_segment_id).into();
+        let segment_filename: String = (&table_state.last_segment_id).into();
 
         let new_segment_file_path = self
             .base_path
@@ -271,28 +260,23 @@ impl TableSegmentManager {
             .await
             .map_err(|err| Errors::TableSegmentFileCreateError(err.to_string()))?;
 
-        Ok((file, table_status.last_segment_id))
+        Ok(file)
     }
 
     // new segment file (DISKTABLE_PAGE_SIZE start)
-    pub async fn create_segment(&self, table_name: &str, size: u32) -> errors::Result<File> {
-        // 1. Check if table exists
-        let mut table_map = self.tables_map.lock().await;
-
-        let table_status = table_map
-            .get_mut(table_name)
-            .ok_or(Errors::TableNotFound(format!(
-                "Table '{}' not found",
-                table_name
-            )))?;
-
+    pub async fn create_segment(
+        &self,
+        table_name: &str,
+        table_state: &mut TableSegmentStatePerTable,
+        size: u32,
+    ) -> errors::Result<File> {
         // 2. Create new segment file
-        table_status.last_segment_id.increment();
-        table_status.current_page_index = 0;
-        table_status.current_page_offset = 0;
-        table_status.segment_file_size = size;
+        table_state.last_segment_id.increment();
+        table_state.current_page_index = 0;
+        table_state.current_page_offset = 0;
+        table_state.segment_file_size = size;
 
-        let segment_filename: String = (&table_status.last_segment_id).into();
+        let segment_filename: String = (&table_state.last_segment_id).into();
 
         let new_segment_file_path = self
             .base_path
@@ -314,24 +298,20 @@ impl TableSegmentManager {
     }
 
     // increase size of segment file
-    pub async fn increase_segment(&self, table_name: &str, size: u32) -> errors::Result<File> {
-        let (mut file, _) = self.get_last_segment_file(table_name).await?;
+    pub async fn increase_segment(
+        &self,
+        table_name: &str,
+        table_state: &mut TableSegmentStatePerTable,
+        size: u32,
+    ) -> errors::Result<File> {
+        let mut file = self.get_last_segment_file(table_name, table_state).await?;
 
         // 3. Expand segment file
         file_resize_and_set_zero(&mut file, size).await?;
 
-        let mut table_map = self.tables_map.lock().await;
-
-        let table_status = table_map
-            .get_mut(table_name)
-            .ok_or(Errors::TableNotFound(format!(
-                "Table '{}' not found",
-                table_name
-            )))?;
-
-        table_status.current_page_offset = table_status.segment_file_size;
-        table_status.current_page_index += 1;
-        table_status.segment_file_size += size;
+        table_state.current_page_offset = table_state.segment_file_size;
+        table_state.current_page_index += 1;
+        table_state.segment_file_size += size;
 
         Ok(file)
     }
@@ -391,20 +371,23 @@ impl TableSegmentManager {
 
         // 2. If the current segment is full, a new segment is created.
         if table.segment_file_size + total_bytes > DISKTABLE_SEGMENT_SIZE {
-            self.create_segment(table_name, DISKTABLE_PAGE_SIZE).await?;
+            self.create_segment(table_name, table, DISKTABLE_PAGE_SIZE)
+                .await?;
         }
 
         // 3. If the current page is full, a new page is created.
         if table.current_page_offset + total_bytes > table.segment_file_size {
-            self.increase_segment(table_name, DISKTABLE_PAGE_SIZE)
+            self.increase_segment(table_name, table, DISKTABLE_PAGE_SIZE)
                 .await?;
         }
 
         // 4. If there is enough space, write the data immediately.
         // TODO: managing file handler pool for I/O performance
-        let (mut file, segment_id) = self.get_last_segment_file(table_name).await?;
+        let mut file = self.get_last_segment_file(table_name, table).await?;
 
-        let segment_file_lock = self.lock_segment_file(table_name, &segment_id).await;
+        let segment_file_lock = self
+            .lock_segment_file(table_name, &table.last_segment_id)
+            .await;
         let write_lock = segment_file_lock.write().await;
 
         file.seek(SeekFrom::Start(table.current_page_offset as u64))
@@ -417,7 +400,7 @@ impl TableSegmentManager {
         drop(write_lock);
 
         let position = TableRecordPosition {
-            segment_id,
+            segment_id: table.last_segment_id.clone(),
             offset: table.current_page_offset,
         };
 
