@@ -4,7 +4,10 @@ use tokio::sync::Mutex;
 
 use crate::{
     config::TABLES_DIRECTORY,
-    disktable::{segment::TableRecordPayload, table::TableInfo},
+    disktable::{
+        segment::{RecordStateFlags, TableRecordPayload},
+        table::TableInfo,
+    },
     errors::{self, Errors},
     memtable::HashMemtable,
     wal::state::{WALGlobalState, WALStateWriteHandles},
@@ -178,8 +181,27 @@ impl DiskTableManager {
         Ok(())
     }
 
-    pub async fn get_value(&self, _table: &str, _key: &str) -> errors::Result<DisktableGetResult> {
-        Ok(DisktableGetResult::Found("disk value".to_string()))
+    pub async fn get_value(
+        &self,
+        table_name: &str,
+        _key: &str,
+    ) -> errors::Result<DisktableGetResult> {
+        // 1. find record position from index
+        let Some(position) = self.index_manager.find_record(table_name, _key).await? else {
+            return Ok(DisktableGetResult::NotFound);
+        };
+
+        // 2. read record from segment
+        let (flag, record) = self
+            .segment_manager
+            .find_record(table_name, position)
+            .await?;
+
+        if flag == RecordStateFlags::Deleted {
+            return Ok(DisktableGetResult::Deleted);
+        }
+
+        Ok(DisktableGetResult::Found(record.value))
     }
 
     pub async fn insert_value(

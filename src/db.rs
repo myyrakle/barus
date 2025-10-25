@@ -291,7 +291,7 @@ impl DBEngine {
             MemtableGetResult::NotFound => {}
         }
 
-        // 4. Try to get from disk area (not implemented yet)
+        // 4. Try to get from disk area
         {
             let disktable_result = self.disktable_manager.get_value(table, key).await?;
 
