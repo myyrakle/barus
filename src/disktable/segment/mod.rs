@@ -50,7 +50,7 @@ pub struct TableSegmentManager {
     file_rw_lock: Arc<Mutex<HashMap<String, Arc<RwLock<()>>>>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TableSegmentStatePerTable {
     last_segment_id: TableSegmentID,
     segment_file_size: u32,
@@ -139,12 +139,20 @@ impl TableSegmentManager {
                 None => TableSegmentID::new(0),
             };
 
-            let describe_result = self
-                .describe_segment_file(&table_name, &last_segment_id)
-                .await?;
+            match last_segment_id.0 {
+                0 => {
+                    let mut table_map = self.tables_map.lock().await;
+                    table_map.insert(table_name, TableSegmentStatePerTable::default());
+                }
+                _ => {
+                    let describe_result = self
+                        .describe_segment_file(&table_name, &last_segment_id)
+                        .await?;
 
-            let mut table_map = self.tables_map.lock().await;
-            table_map.insert(table_name, describe_result);
+                    let mut table_map = self.tables_map.lock().await;
+                    table_map.insert(table_name, describe_result);
+                }
+            }
         }
 
         Ok(())
