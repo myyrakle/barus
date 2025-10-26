@@ -162,18 +162,32 @@ impl BTreeIndex {
 
         // 파일 열기 또는 생성
         let path = self.index_file_path(segment_number);
-        let file = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .open(&path)
-            .await
-            .map_err(|e| {
-                Errors::FileOpenError(format!(
-                    "Failed to open segment {} file: {}",
-                    segment_number, e
-                ))
-            })?;
+        let file = if path.exists() {
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&path)
+                .await
+                .map_err(|e| {
+                    Errors::FileOpenError(format!(
+                        "Failed to open segment {} file: {}",
+                        segment_number, e
+                    ))
+                })?
+        } else {
+            OpenOptions::new()
+                .create_new(true)
+                .read(true)
+                .write(true)
+                .open(&path)
+                .await
+                .map_err(|e| {
+                    Errors::FileOpenError(format!(
+                        "Failed to open segment {} file: {}",
+                        segment_number, e
+                    ))
+                })?
+        };
 
         // 캐시에 추가
         let cached_file = OpenOptions::new()
