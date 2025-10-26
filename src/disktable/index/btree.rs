@@ -83,10 +83,10 @@ impl BTreeNode {
         self.node_type == BTreeNodeType::Leaf
     }
 
-    pub fn is_full(&self, order: usize) -> bool {
+    pub fn is_full(&self, order: u16) -> bool {
         match self.node_type {
-            BTreeNodeType::Leaf => self.leaf_entries.len() >= order - 1,
-            BTreeNodeType::Internal => self.internal_entries.len() >= order - 1,
+            BTreeNodeType::Leaf => self.leaf_entries.len() as u16 >= order - 1,
+            BTreeNodeType::Internal => self.internal_entries.len() as u16 >= order - 1,
         }
     }
 }
@@ -95,7 +95,7 @@ impl BTreeNode {
 #[derive(Debug, Clone, bincode::Encode, bincode::Decode)]
 pub struct BTreeMetadata {
     pub root_position: Option<BTreeNodePosition>,
-    pub order: usize,     // BTree의 차수
+    pub order: u16,       // BTree의 차수
     pub next_offset: u64, // 다음 노드를 쓸 위치
 }
 
@@ -412,15 +412,16 @@ impl BTreeIndex {
         {
             let path = entry.path();
             if let Some(file_name) = path.file_name().and_then(|n| n.to_str())
-                && file_name.starts_with("index.btree") {
-                    tokio::fs::remove_file(&path).await.map_err(|e| {
-                        Errors::FileWriteError(format!(
-                            "Failed to remove file {}: {}",
-                            path.display(),
-                            e
-                        ))
-                    })?;
-                }
+                && file_name.starts_with("index.btree")
+            {
+                tokio::fs::remove_file(&path).await.map_err(|e| {
+                    Errors::FileWriteError(format!(
+                        "Failed to remove file {}: {}",
+                        path.display(),
+                        e
+                    ))
+                })?;
+            }
         }
 
         Ok(())
@@ -743,7 +744,7 @@ impl BTreeIndex {
         node_pos: BTreeNodePosition,
         key: String,
         position: TableRecordPosition,
-        order: usize,
+        order: u16,
     ) -> Result<Option<(String, BTreeNodePosition)>, Errors> {
         let mut node = self.read_node(node_pos).await?;
 
@@ -819,7 +820,7 @@ impl BTreeIndex {
         &self,
         node_pos: BTreeNodePosition,
         mut node: BTreeNode,
-        _order: usize,
+        _order: u16,
     ) -> Result<Option<(String, BTreeNodePosition)>, Errors> {
         let mid = node.leaf_entries.len() / 2;
         let split_key = node.leaf_entries[mid].key.clone();
@@ -839,7 +840,7 @@ impl BTreeIndex {
         &self,
         node_pos: BTreeNodePosition,
         mut node: BTreeNode,
-        _order: usize,
+        _order: u16,
     ) -> Result<Option<(String, BTreeNodePosition)>, Errors> {
         let mid = node.internal_entries.len() / 2;
         let split_key = node.internal_entries[mid].key.clone();
