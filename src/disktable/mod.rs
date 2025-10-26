@@ -282,6 +282,7 @@ impl DiskTableManager {
         wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     ) -> errors::Result<()> {
         log::info!("Memtable Flush Started...");
+        let start_time = std::time::Instant::now();
 
         // 1. write memtable to disk
         for (table_name, memtable) in memtable {
@@ -324,7 +325,8 @@ impl DiskTableManager {
             }
         }
 
-        log::info!("Memtable Flush Completed Successfully.");
+        let elapsed = start_time.elapsed();
+        log::info!("Memtable Flush Completed Successfully in {:?}", elapsed);
 
         Ok(())
     }
