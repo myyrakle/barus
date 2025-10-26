@@ -1,10 +1,10 @@
-use std::{io::SeekFrom, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, io::SeekFrom, path::PathBuf, sync::Arc};
 
 use async_recursion::async_recursion;
 use tokio::{
     fs::{File, OpenOptions},
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
-    sync::Mutex,
+    sync::{Mutex, RwLock},
 };
 
 use crate::{
@@ -115,8 +115,7 @@ pub struct BTreeIndex {
     base_path: PathBuf,
     table_name: String,
     metadata: Arc<Mutex<BTreeMetadata>>,
-    // 파일 I/O 동기화를 위한 락
-    io_lock: Arc<Mutex<()>>,
+    file_locks: Arc<RwLock<HashMap<u32, Arc<Mutex<File>>>>>,
 }
 
 impl BTreeIndex {
@@ -125,7 +124,7 @@ impl BTreeIndex {
             base_path,
             table_name,
             metadata: Arc::new(Mutex::new(BTreeMetadata::default())),
-            io_lock: Arc::new(Mutex::new(())),
+            file_locks: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -152,8 +151,16 @@ impl BTreeIndex {
     }
 
     /// 세그먼트 파일 가져오기 (매번 새로 열기 - 캐시 제거)
-    async fn get_segment_file(&self, segment_number: u32) -> Result<File, Errors> {
+    async fn get_segment_file(&self, segment_number: u32) -> Result<Arc<Mutex<File>>, Errors> {
         let path = self.index_file_path(segment_number);
+
+        // 1. 캐시에 파일 핸들이 이미 있으면 반환
+        {
+            let file_locks_guard = self.file_locks.read().await;
+            if let Some(file_lock) = file_locks_guard.get(&segment_number) {
+                return Ok(file_lock.clone());
+            }
+        }
 
         let file = if path.exists() {
             OpenOptions::new()
@@ -168,15 +175,6 @@ impl BTreeIndex {
                     ))
                 })?
         } else {
-            // 디렉터리 생성 보장
-            if let Some(parent) = path.parent() {
-                if !parent.exists() {
-                    tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                        Errors::FileOpenError(format!("Failed to create index directory: {}", e))
-                    })?;
-                }
-            }
-            
             OpenOptions::new()
                 .create_new(true)
                 .read(true)
@@ -191,7 +189,12 @@ impl BTreeIndex {
                 })?
         };
 
-        Ok(file)
+        let file_handle = Arc::new(Mutex::new(file));
+
+        let mut file_locks_guard = self.file_locks.write().await;
+        file_locks_guard.insert(segment_number, file_handle.clone());
+
+        Ok(file_handle)
     }
 
     /// 메타데이터 파일 경로 반환
@@ -441,8 +444,10 @@ impl BTreeIndex {
             .write(true)
             .open(&metadata_path)
             .await
-            .map_err(|e| Errors::FileOpenError(format!("Failed to open metadata file for sync: {}", e)))?;
-        
+            .map_err(|e| {
+                Errors::FileOpenError(format!("Failed to open metadata file for sync: {}", e))
+            })?;
+
         file.sync_all()
             .await
             .map_err(|e| Errors::FileWriteError(format!("Failed to sync metadata file: {}", e)))?;
@@ -456,7 +461,8 @@ impl BTreeIndex {
         let (segment_number, segment_offset) = self.offset_to_segment(position.offset);
 
         // 해당 세그먼트 파일 열기
-        let mut file = self.get_segment_file(segment_number).await?;
+        let file_handle = self.get_segment_file(segment_number).await?;
+        let mut file = file_handle.lock().await;
 
         // 파일 크기 확인
         let file_size = file
@@ -468,7 +474,11 @@ impl BTreeIndex {
         if segment_offset + 4 > file_size {
             log::error!(
                 "[BTree:{}] Read error: offset {} + 4 > file size {}. Segment: {}, Logical offset: {}",
-                self.table_name, segment_offset, file_size, segment_number, position.offset
+                self.table_name,
+                segment_offset,
+                file_size,
+                segment_number,
+                position.offset
             );
             return Err(Errors::FileReadError(format!(
                 "Attempt to read beyond file size: offset {} + 4 > file size {}. Index may be corrupted.",
@@ -486,7 +496,9 @@ impl BTreeIndex {
         let node_size = file.read_u32().await.map_err(|e| {
             log::error!(
                 "[BTree:{}] Failed to read size header at offset {}: {}",
-                self.table_name, segment_offset, e
+                self.table_name,
+                segment_offset,
+                e
             );
             Errors::FileReadError(format!(
                 "Failed to read node size at offset {}: {}",
@@ -498,7 +510,10 @@ impl BTreeIndex {
         if node_size == 0 {
             log::error!(
                 "[BTree:{}] Invalid node size 0 at offset {}. Segment: {}, Logical: {}. This indicates uninitialized or corrupted space.",
-                self.table_name, segment_offset, segment_number, position.offset
+                self.table_name,
+                segment_offset,
+                segment_number,
+                position.offset
             );
             return Err(Errors::FileReadError(format!(
                 "Invalid node size 0 at offset {}. Index may be corrupted or reading uninitialized space.",
@@ -510,7 +525,12 @@ impl BTreeIndex {
         if node_size > max_data_size as u32 {
             log::error!(
                 "[BTree:{}] Node size {} exceeds maximum {} at offset {}. Segment: {}, Logical: {}",
-                self.table_name, node_size, max_data_size, segment_offset, segment_number, position.offset
+                self.table_name,
+                node_size,
+                max_data_size,
+                segment_offset,
+                segment_number,
+                position.offset
             );
             return Err(Errors::FileReadError(format!(
                 "Node size {} exceeds maximum block size {}. Index may be corrupted.",
@@ -521,7 +541,12 @@ impl BTreeIndex {
         if segment_offset + 4 + node_size as u64 > file_size {
             log::error!(
                 "[BTree:{}] Node size error: offset {} + 4 + {} > file size {}. Segment: {}, Logical: {}",
-                self.table_name, segment_offset, node_size, file_size, segment_number, position.offset
+                self.table_name,
+                segment_offset,
+                node_size,
+                file_size,
+                segment_number,
+                position.offset
             );
             return Err(Errors::FileReadError(format!(
                 "Node size {} exceeds file bounds: offset {} + 4 + {} > file size {}. Index may be corrupted.",
@@ -534,7 +559,10 @@ impl BTreeIndex {
         file.read_exact(&mut buffer).await.map_err(|e| {
             log::error!(
                 "[BTree:{}] Read exact failed: size={}, offset={}, error={}",
-                self.table_name, node_size, segment_offset, e
+                self.table_name,
+                node_size,
+                segment_offset,
+                e
             );
             Errors::FileReadError(format!(
                 "Failed to read node data of size {} at offset {}: {}",
@@ -568,7 +596,10 @@ impl BTreeIndex {
         if encoded.len() > max_data_size {
             log::error!(
                 "[BTree:{}] Node too large: {} > {} (type={:?}, entries={})",
-                self.table_name, encoded.len(), max_data_size, node.node_type,
+                self.table_name,
+                encoded.len(),
+                max_data_size,
+                node.node_type,
                 node.leaf_entries.len() + node.internal_entries.len()
             );
             return Err(Errors::FileWriteError(format!(
@@ -600,13 +631,12 @@ impl BTreeIndex {
         };
 
         // 3. 파일 I/O 수행 (락으로 보호하여 seek/write가 원자적으로 실행되도록)
-        let _io_guard = self.io_lock.lock().await;
-        
         let node_size = encoded.len() as u32;
         let size_bytes = node_size.to_be_bytes();
 
         // 해당 세그먼트 파일 열기
-        let mut file = self.get_segment_file(segment_number).await?;
+        let file_handle = self.get_segment_file(segment_number).await?;
+        let mut file = file_handle.lock().await;
 
         file.seek(SeekFrom::Start(segment_offset))
             .await
@@ -650,9 +680,6 @@ impl BTreeIndex {
         position: BTreeNodePosition,
         node: &BTreeNode,
     ) -> Result<(), Errors> {
-        // 파일 I/O를 락으로 보호
-        let _io_guard = self.io_lock.lock().await;
-        
         // 논리적 오프셋을 세그먼트 정보로 변환
         let (segment_number, segment_offset) = self.offset_to_segment(position.offset);
 
@@ -665,7 +692,10 @@ impl BTreeIndex {
         if encoded.len() > max_data_size {
             log::error!(
                 "[BTree:{}] Update: Node too large: {} > {} at offset={}",
-                self.table_name, encoded.len(), max_data_size, position.offset
+                self.table_name,
+                encoded.len(),
+                max_data_size,
+                position.offset
             );
             return Err(Errors::FileWriteError(format!(
                 "Node size {} exceeds maximum block size {}",
@@ -678,7 +708,10 @@ impl BTreeIndex {
         let size_bytes = node_size.to_be_bytes();
 
         // 해당 세그먼트 파일 열기
-        let mut file = self.get_segment_file(segment_number).await?;
+
+        // 파일 I/O를 락으로 보호
+        let file_handle = self.get_segment_file(segment_number).await?;
+        let mut file = file_handle.lock().await;
 
         file.seek(SeekFrom::Start(segment_offset))
             .await
@@ -749,7 +782,7 @@ impl BTreeIndex {
                         node_pos.offset
                     )));
                 }
-                
+
                 // 내부 노드에서 적절한 자식 찾기
                 let mut child_pos = node.leftmost_child.unwrap();
 
@@ -868,7 +901,7 @@ impl BTreeIndex {
                         node_pos.offset
                     )));
                 }
-                
+
                 // 적절한 자식 노드 찾기
                 let mut child_pos = node.leftmost_child;
                 let mut insert_index = 0;
@@ -883,7 +916,7 @@ impl BTreeIndex {
 
                 // child_pos는 위에서 leftmost_child로 초기화되므로 항상 Some
                 let pos = child_pos.unwrap();
-                
+
                 // 자식 노드에 재귀적으로 삽입
                 if let Some((split_key, new_child_pos)) =
                     self.insert_into_node(pos, key, position, order).await?
@@ -946,16 +979,17 @@ impl BTreeIndex {
         let split_key = node.internal_entries[mid].key.clone();
 
         let mut new_node = BTreeNode::new_internal();
-        
+
         // mid+1 이후의 엔트리들을 new_node로 이동
         new_node.internal_entries = node.internal_entries.split_off(mid + 1);
-        
+
         // mid 위치의 엔트리를 pop하여 new_node의 leftmost_child로 설정
-        let mid_entry = node.internal_entries.pop()
-            .ok_or_else(|| Errors::FileReadError(
-                format!("Internal node split failed: no entry at mid position. This should never happen.")
-            ))?;
-        
+        let mid_entry = node.internal_entries.pop().ok_or_else(|| {
+            Errors::FileReadError(format!(
+                "Internal node split failed: no entry at mid position. This should never happen."
+            ))
+        })?;
+
         new_node.leftmost_child = Some(mid_entry.child_position);
         new_node.parent = node.parent;
 
@@ -1027,7 +1061,7 @@ impl BTreeIndex {
                         node_pos.offset
                     )));
                 }
-                
+
                 // 적절한 자식 노드 찾기
                 let mut child_pos = node.leftmost_child.unwrap();
 
