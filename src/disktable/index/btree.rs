@@ -1,4 +1,4 @@
-use std::{io::SeekFrom, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, io::SeekFrom, path::PathBuf, sync::Arc};
 
 use async_recursion::async_recursion;
 use tokio::{
@@ -8,6 +8,9 @@ use tokio::{
 };
 
 use crate::{config::TABLES_DIRECTORY, disktable::segment::TableRecordPosition, errors::Errors};
+
+/// 인덱스 세그먼트 파일의 최대 크기 (1GB)
+const INDEX_SEGMENT_SIZE: u64 = 1024 * 1024 * 1024;
 
 /// BTree 노드의 타입
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bincode::Encode, bincode::Decode)]
@@ -105,7 +108,8 @@ pub struct BTreeIndex {
     base_path: PathBuf,
     table_name: String,
     metadata: Arc<Mutex<BTreeMetadata>>,
-    file: Arc<Mutex<Option<File>>>,
+    // 세그먼트 번호 -> 파일 핸들 캐시
+    segment_files: Arc<Mutex<HashMap<u32, File>>>,
 }
 
 impl BTreeIndex {
@@ -114,16 +118,78 @@ impl BTreeIndex {
             base_path,
             table_name,
             metadata: Arc::new(Mutex::new(BTreeMetadata::default())),
-            file: Arc::new(Mutex::new(None)),
+            segment_files: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    /// 인덱스 파일 경로 반환
-    fn index_file_path(&self) -> PathBuf {
-        self.base_path
-            .join(TABLES_DIRECTORY)
-            .join(&self.table_name)
-            .join("index.btree")
+    /// 인덱스 파일 경로 반환 (세그먼트 번호 포함)
+    fn index_file_path(&self, segment_number: u32) -> PathBuf {
+        let base = self.base_path.join(TABLES_DIRECTORY).join(&self.table_name);
+
+        if segment_number == 0 {
+            base.join("index.btree")
+        } else {
+            base.join(format!("index.btree.{}", segment_number))
+        }
+    }
+
+    /// 논리적 오프셋을 (세그먼트 번호, 세그먼트 내 오프셋)으로 변환
+    fn offset_to_segment(&self, logical_offset: u64) -> (u32, u64) {
+        let segment_number = (logical_offset / INDEX_SEGMENT_SIZE) as u32;
+        let segment_offset = logical_offset % INDEX_SEGMENT_SIZE;
+        (segment_number, segment_offset)
+    }
+
+    /// 세그먼트 파일 가져오기 (캐시된 파일 또는 새로 열기)
+    async fn get_segment_file(&self, segment_number: u32) -> Result<File, Errors> {
+        let mut files = self.segment_files.lock().await;
+
+        // 캐시에 있으면 복제해서 반환
+        if files.contains_key(&segment_number) {
+            let path = self.index_file_path(segment_number);
+            return OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&path)
+                .await
+                .map_err(|e| {
+                    Errors::FileOpenError(format!(
+                        "Failed to open segment {} file: {}",
+                        segment_number, e
+                    ))
+                });
+        }
+
+        // 파일 열기 또는 생성
+        let path = self.index_file_path(segment_number);
+        let file = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(&path)
+            .await
+            .map_err(|e| {
+                Errors::FileOpenError(format!(
+                    "Failed to open segment {} file: {}",
+                    segment_number, e
+                ))
+            })?;
+
+        // 캐시에 추가
+        let cached_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .await
+            .map_err(|e| {
+                Errors::FileOpenError(format!(
+                    "Failed to cache segment {} file: {}",
+                    segment_number, e
+                ))
+            })?;
+
+        files.insert(segment_number, cached_file);
+        Ok(file)
     }
 
     /// 메타데이터 파일 경로 반환
@@ -136,7 +202,6 @@ impl BTreeIndex {
 
     /// 인덱스 초기화 (파일 열기 또는 생성)
     pub async fn initialize(&self) -> Result<(), Errors> {
-        let index_path = self.index_file_path();
         let metadata_path = self.metadata_file_path();
 
         // 메타데이터 파일 읽기 또는 생성
@@ -159,17 +224,8 @@ impl BTreeIndex {
             self.save_metadata().await?;
         }
 
-        // 인덱스 파일 열기 또는 생성
-        let file = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .open(&index_path)
-            .await
-            .map_err(|e| Errors::FileOpenError(format!("Failed to open index file: {}", e)))?;
-
-        let mut file_guard = self.file.lock().await;
-        *file_guard = Some(file);
+        // 첫 번째 세그먼트 파일만 미리 열기
+        self.get_segment_file(0).await?;
 
         Ok(())
     }
@@ -191,12 +247,13 @@ impl BTreeIndex {
 
     /// 노드 읽기
     async fn read_node(&self, position: BTreeNodePosition) -> Result<BTreeNode, Errors> {
-        let mut file_guard = self.file.lock().await;
-        let file = file_guard
-            .as_mut()
-            .ok_or_else(|| Errors::FileReadError("Index file not initialized".to_string()))?;
+        // 논리적 오프셋을 세그먼트 정보로 변환
+        let (segment_number, segment_offset) = self.offset_to_segment(position.offset);
 
-        file.seek(SeekFrom::Start(position.offset))
+        // 해당 세그먼트 파일 열기
+        let mut file = self.get_segment_file(segment_number).await?;
+
+        file.seek(SeekFrom::Start(segment_offset))
             .await
             .map_err(|e| {
                 Errors::FileSeekError(format!("Failed to seek to node position: {}", e))
@@ -225,9 +282,13 @@ impl BTreeIndex {
     /// 노드 쓰기
     async fn write_node(&self, node: &BTreeNode) -> Result<BTreeNodePosition, Errors> {
         let mut meta_guard = self.metadata.lock().await;
+        let logical_offset = meta_guard.next_offset;
         let position = BTreeNodePosition {
-            offset: meta_guard.next_offset,
+            offset: logical_offset,
         };
+
+        // 논리적 오프셋을 세그먼트 정보로 변환
+        let (segment_number, segment_offset) = self.offset_to_segment(logical_offset);
 
         // 노드 인코딩
         let encoded = bincode::encode_to_vec(node, bincode::config::standard())
@@ -236,12 +297,10 @@ impl BTreeIndex {
         let node_size = encoded.len() as u32;
         let size_bytes = node_size.to_le_bytes();
 
-        let mut file_guard = self.file.lock().await;
-        let file = file_guard
-            .as_mut()
-            .ok_or_else(|| Errors::FileWriteError("Index file not initialized".to_string()))?;
+        // 해당 세그먼트 파일 열기
+        let mut file = self.get_segment_file(segment_number).await?;
 
-        file.seek(SeekFrom::Start(position.offset))
+        file.seek(SeekFrom::Start(segment_offset))
             .await
             .map_err(|e| {
                 Errors::FileSeekError(format!("Failed to seek to write position: {}", e))
@@ -260,7 +319,6 @@ impl BTreeIndex {
         // 오프셋 업데이트
         meta_guard.next_offset += 4 + encoded.len() as u64;
 
-        drop(file_guard);
         drop(meta_guard);
 
         self.save_metadata().await?;
@@ -274,6 +332,9 @@ impl BTreeIndex {
         position: BTreeNodePosition,
         node: &BTreeNode,
     ) -> Result<(), Errors> {
+        // 논리적 오프셋을 세그먼트 정보로 변환
+        let (segment_number, segment_offset) = self.offset_to_segment(position.offset);
+
         // 노드 인코딩
         let encoded = bincode::encode_to_vec(node, bincode::config::standard())
             .map_err(|e| Errors::FileWriteError(format!("Failed to encode node: {}", e)))?;
@@ -281,12 +342,10 @@ impl BTreeIndex {
         let node_size = encoded.len() as u32;
         let size_bytes = node_size.to_le_bytes();
 
-        let mut file_guard = self.file.lock().await;
-        let file = file_guard
-            .as_mut()
-            .ok_or_else(|| Errors::FileWriteError("Index file not initialized".to_string()))?;
+        // 해당 세그먼트 파일 열기
+        let mut file = self.get_segment_file(segment_number).await?;
 
-        file.seek(SeekFrom::Start(position.offset))
+        file.seek(SeekFrom::Start(segment_offset))
             .await
             .map_err(|e| {
                 Errors::FileSeekError(format!("Failed to seek to update position: {}", e))
