@@ -93,6 +93,19 @@ impl TableSegmentManager {
         }
     }
 
+    // Table Initialization
+    pub async fn initialize_table(&self, table_name: &str) -> errors::Result<()> {
+        let mut tables_map = self.tables_map.lock().await;
+        let table = tables_map
+            .entry(table_name.to_owned())
+            .or_insert_with(|| TableSegmentStatePerTable::default());
+
+        self.create_segment(table_name, table, DISKTABLE_PAGE_SIZE)
+            .await?;
+
+        Ok(())
+    }
+
     pub async fn list_segment_files(
         &self,
         table_name: &str,

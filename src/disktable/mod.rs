@@ -173,6 +173,9 @@ impl DiskTableManager {
                 })?;
         }
 
+        // 5. Create First Segment File
+        self.segment_manager.initialize_table(table).await?;
+
         Ok(())
     }
 
