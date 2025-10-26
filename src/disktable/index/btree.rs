@@ -727,6 +727,17 @@ impl BTreeIndex {
 
             let new_root_pos = self.write_node(&new_root).await?;
 
+            // 자식 노드들의 parent 포인터 갱신
+            // 1. 기존 루트(leftmost_child)
+            let mut old_root = self.read_node(root_pos).await?;
+            old_root.parent = Some(new_root_pos);
+            self.update_node(root_pos, &old_root).await?;
+            
+            // 2. 분할된 새 노드
+            let mut split_node = self.read_node(new_node_pos).await?;
+            split_node.parent = Some(new_root_pos);
+            self.update_node(new_node_pos, &split_node).await?;
+
             let mut meta_guard = self.metadata.lock().await;
             meta_guard.root_position = Some(new_root_pos);
             drop(meta_guard);
@@ -790,6 +801,11 @@ impl BTreeIndex {
                     if let Some((split_key, new_child_pos)) =
                         self.insert_into_node(pos, key, position, order).await?
                     {
+                        // 분할된 새 자식의 parent 포인터 갱신
+                        let mut new_child = self.read_node(new_child_pos).await?;
+                        new_child.parent = Some(node_pos);
+                        self.update_node(new_child_pos, &new_child).await?;
+                        
                         // 분할된 노드 처리
                         node.internal_entries.insert(
                             insert_index,
@@ -855,6 +871,22 @@ impl BTreeIndex {
         new_node.parent = node.parent;
 
         let new_node_pos = self.write_node(&new_node).await?;
+        
+        // new_node로 이동한 자식 노드들의 parent 포인터 갱신
+        // 1. leftmost_child 갱신
+        if let Some(child_pos) = new_node.leftmost_child {
+            let mut child = self.read_node(child_pos).await?;
+            child.parent = Some(new_node_pos);
+            self.update_node(child_pos, &child).await?;
+        }
+        
+        // 2. internal_entries의 모든 자식들 갱신
+        for entry in &new_node.internal_entries {
+            let mut child = self.read_node(entry.child_position).await?;
+            child.parent = Some(new_node_pos);
+            self.update_node(entry.child_position, &child).await?;
+        }
+        
         self.update_node(node_pos, &node).await?;
 
         Ok(Some((split_key, new_node_pos)))

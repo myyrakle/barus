@@ -222,7 +222,6 @@ impl DiskTableManager {
     ) -> errors::Result<DisktableGetResult> {
         // 1. find record position from index
         let Some(position) = self.index_manager.find_record(table_name, key).await? else {
-            println!("인덱스 없는데");
             return Ok(DisktableGetResult::NotFound);
         };
 
@@ -231,9 +230,6 @@ impl DiskTableManager {
             .segment_manager
             .find_record(table_name, position)
             .await?;
-
-        println!("flags: {:?}", flag);
-        println!("record: {:?}", record);
 
         if flag == RecordStateFlags::Deleted {
             return Ok(DisktableGetResult::Deleted);
