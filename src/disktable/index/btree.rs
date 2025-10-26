@@ -439,19 +439,6 @@ impl BTreeIndex {
             .await
             .map_err(|e| Errors::FileWriteError(format!("Failed to write metadata file: {}", e)))?;
 
-        // fsync를 통해 메타데이터를 디스크에 확실히 기록
-        let file = OpenOptions::new()
-            .write(true)
-            .open(&metadata_path)
-            .await
-            .map_err(|e| {
-                Errors::FileOpenError(format!("Failed to open metadata file for sync: {}", e))
-            })?;
-
-        file.sync_all()
-            .await
-            .map_err(|e| Errors::FileWriteError(format!("Failed to sync metadata file: {}", e)))?;
-
         Ok(())
     }
 
@@ -663,12 +650,7 @@ impl BTreeIndex {
                 .map_err(|e| Errors::FileWriteError(format!("Failed to write padding: {}", e)))?;
         }
 
-        // 데이터를 디스크에 확실히 기록
-        file.sync_all()
-            .await
-            .map_err(|e| Errors::FileWriteError(format!("Failed to sync node data: {}", e)))?;
-
-        // 4. 메타데이터 저장 (next_offset은 이미 증가되어 있음)
+        // 메타데이터 저장 (next_offset은 이미 증가되어 있음)
         self.save_metadata().await?;
 
         Ok(position)
