@@ -9,7 +9,7 @@ use tokio::{
 use crate::{
     config::{
         DISKTABLE_PAGE_SIZE, DISKTABLE_SEGMENT_SIZE, TABLE_SEGMENT_RECORD_HEADER_SIZE,
-        TABLES_DIRECTORY,
+        TABLES_DIRECTORY, TABLES_SEGMENT_DIRECTORY,
     },
     disktable::segment::{
         encode::{TableRecordBincodeCodec, TableRecordCodec},
@@ -97,7 +97,11 @@ impl TableSegmentManager {
         &self,
         table_name: &str,
     ) -> errors::Result<Vec<ListSegmentFileItem>> {
-        let table_directory = self.base_path.join(TABLES_DIRECTORY).join(table_name);
+        let table_directory = self
+            .base_path
+            .join(TABLES_DIRECTORY)
+            .join(table_name)
+            .join(TABLES_SEGMENT_DIRECTORY);
 
         // 1. 모든 세그먼트 파일 읽기 (파일만 필터링해서 파일명 반환)
         let mut segment_files: Vec<_> = std::fs::read_dir(&table_directory)
@@ -147,6 +151,7 @@ impl TableSegmentManager {
             .base_path
             .join(TABLES_DIRECTORY)
             .join(table_name)
+            .join(TABLES_SEGMENT_DIRECTORY)
             .join(segment_file_name);
 
         let mut file = File::open(&file_path).await.map_err(|e| {
@@ -269,6 +274,7 @@ impl TableSegmentManager {
             .base_path
             .join(TABLES_DIRECTORY)
             .join(table_name)
+            .join(TABLES_SEGMENT_DIRECTORY)
             .join(file_name);
 
         let mut file = File::open(&file_path).await.map_err(|e| {
@@ -362,6 +368,7 @@ impl TableSegmentManager {
             .base_path
             .join(TABLES_DIRECTORY)
             .join(table_name)
+            .join(TABLES_SEGMENT_DIRECTORY)
             .join(segment_filename);
 
         let file = OpenOptions::new()
@@ -393,6 +400,7 @@ impl TableSegmentManager {
             .base_path
             .join(TABLES_DIRECTORY)
             .join(table_name)
+            .join(TABLES_SEGMENT_DIRECTORY)
             .join(segment_filename);
 
         let mut file = OpenOptions::new()

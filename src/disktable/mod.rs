@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::{
-    config::TABLES_DIRECTORY,
+    config::{TABLES_DIRECTORY, TABLES_SEGMENT_DIRECTORY},
     disktable::{
         segment::{RecordStateFlags, TableRecordPayload},
         table::TableInfo,
@@ -129,8 +129,21 @@ impl DiskTableManager {
                 ))
             })?;
 
-        // 2. Create table segment directory
+        // 2. Create table directory
         let table_segment_directory = self.base_path.join(TABLES_DIRECTORY).join(table);
+        if !table_segment_directory.exists() {
+            tokio::fs::create_dir_all(&table_segment_directory)
+                .await
+                .map_err(|e| {
+                    errors::Errors::TableCreationError(format!(
+                        "Failed to create table segment directory: {}",
+                        e
+                    ))
+                })?;
+        }
+
+        // 3. Create Table Segment Directory
+        let table_segment_directory = table_segment_directory.join(TABLES_SEGMENT_DIRECTORY);
         if !table_segment_directory.exists() {
             tokio::fs::create_dir_all(&table_segment_directory)
                 .await
