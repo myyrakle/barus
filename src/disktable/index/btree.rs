@@ -452,11 +452,6 @@ impl BTreeIndex {
 
     /// 노드 읽기
     async fn read_node(&self, position: BTreeNodePosition) -> Result<BTreeNode, Errors> {
-        log::trace!(
-            "[BTree:{}] read_node: offset={}",
-            self.table_name, position.offset
-        );
-        
         // 논리적 오프셋을 세그먼트 정보로 변환
         let (segment_number, segment_offset) = self.offset_to_segment(position.offset);
 
@@ -588,12 +583,7 @@ impl BTreeIndex {
             let mut meta_guard = self.metadata.lock().await;
             let logical_offset = meta_guard.next_offset;
 
-            log::trace!(
-                "[BTree:{}] write_node: allocating offset={}, current next_offset={}",
-                self.table_name, logical_offset, meta_guard.next_offset
-            );
-
-            // 오프셋 즉시 증가 (예약) - 실패하면 롤백할 수 있도록 저장
+            // 오프셋 즉시 증가 (예약)
             meta_guard.next_offset += NODE_SIZE as u64;
 
             // 세그먼트 정보 계산
@@ -660,60 +650,6 @@ impl BTreeIndex {
         position: BTreeNodePosition,
         node: &BTreeNode,
     ) -> Result<(), Errors> {
-        // 포인터 유효성 검증
-        let next_offset = {
-            let meta_guard = self.metadata.lock().await;
-            meta_guard.next_offset
-        };
-        
-        // parent 포인터 검증
-        if let Some(parent_pos) = node.parent {
-            if parent_pos.offset >= next_offset {
-                log::error!(
-                    "[BTree:{}] update_node: INVALID parent pointer at offset {}: parent={} >= next_offset={}",
-                    self.table_name, position.offset, parent_pos.offset, next_offset
-                );
-                return Err(Errors::FileWriteError(format!(
-                    "Invalid parent pointer {} at offset {} (next_offset={})",
-                    parent_pos.offset, position.offset, next_offset
-                )));
-            }
-        }
-        
-        // Internal 노드의 child 포인터 검증
-        if node.node_type == BTreeNodeType::Internal {
-            if let Some(leftmost) = node.leftmost_child {
-                if leftmost.offset >= next_offset {
-                    log::error!(
-                        "[BTree:{}] update_node: INVALID leftmost_child at offset {}: leftmost={} >= next_offset={}",
-                        self.table_name, position.offset, leftmost.offset, next_offset
-                    );
-                    return Err(Errors::FileWriteError(format!(
-                        "Invalid leftmost_child pointer {} at offset {} (next_offset={})",
-                        leftmost.offset, position.offset, next_offset
-                    )));
-                }
-            }
-            
-            for (i, entry) in node.internal_entries.iter().enumerate() {
-                if entry.child_position.offset >= next_offset {
-                    log::error!(
-                        "[BTree:{}] update_node: INVALID child pointer at offset {}: entry[{}].child={} >= next_offset={}",
-                        self.table_name, position.offset, i, entry.child_position.offset, next_offset
-                    );
-                    return Err(Errors::FileWriteError(format!(
-                        "Invalid child pointer {} at offset {} entry {} (next_offset={})",
-                        entry.child_position.offset, position.offset, i, next_offset
-                    )));
-                }
-            }
-        }
-        
-        log::trace!(
-            "[BTree:{}] update_node: offset={}, node_type={:?}, parent={:?}",
-            self.table_name, position.offset, node.node_type, node.parent
-        );
-        
         // 파일 I/O를 락으로 보호
         let _io_guard = self.io_lock.lock().await;
         
@@ -740,11 +676,6 @@ impl BTreeIndex {
 
         let node_size = encoded.len() as u32;
         let size_bytes = node_size.to_be_bytes();
-
-        log::trace!(
-            "[BTree:{}] update_node: writing to segment={}, segment_offset={}, size={}",
-            self.table_name, segment_number, segment_offset, node_size
-        );
 
         // 해당 세그먼트 파일 열기
         let mut file = self.get_segment_file(segment_number).await?;
@@ -863,8 +794,6 @@ impl BTreeIndex {
             .insert_into_node(root_pos, key, position, order)
             .await?
         {
-            log::info!("[BTree:{}] Root split: creating new internal root", self.table_name);
-            
             // 루트가 split되었으므로 새로운 internal 루트 생성
             let mut new_root = BTreeNode::new_internal();
             new_root.leftmost_child = Some(root_pos);
@@ -893,7 +822,6 @@ impl BTreeIndex {
             self.save_metadata().await?;
         }
 
-        log::debug!("[BTree:{}] insert completed successfully", self.table_name);
         Ok(())
     }
 
@@ -906,10 +834,6 @@ impl BTreeIndex {
         position: TableRecordPosition,
         order: u16,
     ) -> Result<Option<(String, BTreeNodePosition)>, Errors> {
-        log::trace!(
-            "[BTree:{}] insert_into_node: offset={}, key={}",
-            self.table_name, node_pos.offset, key
-        );
         let mut node = self.read_node(node_pos).await?;
 
         match node.node_type {
@@ -959,11 +883,6 @@ impl BTreeIndex {
 
                 // child_pos는 위에서 leftmost_child로 초기화되므로 항상 Some
                 let pos = child_pos.unwrap();
-                
-                log::trace!(
-                    "[BTree:{}] Internal node at offset {} routing key {} to child at offset {}",
-                    self.table_name, node_pos.offset, key, pos.offset
-                );
                 
                 // 자식 노드에 재귀적으로 삽입
                 if let Some((split_key, new_child_pos)) =
@@ -1043,13 +962,6 @@ impl BTreeIndex {
         // CRITICAL: 원본 노드도 leftmost_child를 유지해야 함!
         // node.leftmost_child는 이미 설정되어 있으므로 그대로 유지
         // (변경하지 않음)
-
-        log::trace!(
-            "[BTree:{}] Splitting internal node at offset {}: old_node leftmost={:?} entries={}, new_node leftmost={:?} entries={}",
-            self.table_name, node_pos.offset, 
-            node.leftmost_child, node.internal_entries.len(),
-            new_node.leftmost_child, new_node.internal_entries.len()
-        );
 
         let new_node_pos = self.write_node(&new_node).await?;
 

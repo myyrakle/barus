@@ -289,7 +289,7 @@ impl DiskTableManager {
             let mut memtable = memtable.lock().await;
             let entry_count = memtable.table.len();
 
-            log::info!("Flushing table '{}': {} entries", table_name, entry_count);
+            log::trace!("Flushing table '{}': {} entries", table_name, entry_count);
             let mut processed = 0;
             let report_interval = (entry_count / 10).max(1000); // 10% 또는 최소 1000개마다 리포트
 
@@ -312,15 +312,17 @@ impl DiskTableManager {
 
                 processed += 1;
                 if processed % report_interval == 0 {
-                    log::info!(
+                    log::trace!(
                         "Table '{}': {}/{} entries processed ({:.1}%)",
-                        table_name, processed, entry_count,
+                        table_name,
+                        processed,
+                        entry_count,
                         (processed as f64 / entry_count as f64) * 100.0
                     );
                 }
             }
 
-            log::info!("Table '{}': flushed {} entries", table_name, entry_count);
+            log::trace!("Table '{}': flushed {} entries", table_name, entry_count);
 
             // 1.3. destroy memtable. now, we can find data in disk
             memtable.table.clear();
