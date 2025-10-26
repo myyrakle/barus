@@ -88,7 +88,20 @@ impl MemtableManager {
                 RecordType::Delete => {
                     let payload = record.data;
 
-                    self.delete(payload.table, payload.key).await?;
+                    match self.delete(payload.table, payload.key).await {
+                        Ok(_) => (),
+                        Err(error) => {
+                            match error {
+                                Errors::TableNotFound(_) | Errors::ValueNotFound(_) => {
+                                    // 로그로 남기고 무시
+                                    log::debug!("WAL replay delete failed but ignored: {}", error);
+                                }
+                                _ => {
+                                    return Err(error);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -152,7 +165,13 @@ impl MemtableManager {
 
             {
                 let mut memtable_map = self.memtable_map.write().await;
+
                 let mut flushing_memtable = self.flushing_memtable_map.write().await;
+                for table in memtable_map.keys() {
+                    flushing_memtable
+                        .insert(table.clone(), Arc::new(Mutex::new(HashMemtable::new())));
+                }
+
                 std::mem::swap(&mut *memtable_map, &mut *flushing_memtable);
             }
 
