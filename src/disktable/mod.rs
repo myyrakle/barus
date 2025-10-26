@@ -218,10 +218,11 @@ impl DiskTableManager {
     pub async fn get_value(
         &self,
         table_name: &str,
-        _key: &str,
+        key: &str,
     ) -> errors::Result<DisktableGetResult> {
         // 1. find record position from index
-        let Some(position) = self.index_manager.find_record(table_name, _key).await? else {
+        let Some(position) = self.index_manager.find_record(table_name, key).await? else {
+            println!("인덱스 없는데");
             return Ok(DisktableGetResult::NotFound);
         };
 
@@ -230,6 +231,9 @@ impl DiskTableManager {
             .segment_manager
             .find_record(table_name, position)
             .await?;
+
+        println!("flags: {:?}", flag);
+        println!("record: {:?}", record);
 
         if flag == RecordStateFlags::Deleted {
             return Ok(DisktableGetResult::Deleted);
@@ -281,6 +285,8 @@ impl DiskTableManager {
         wal_state: Arc<Mutex<WALGlobalState>>,
         wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     ) -> errors::Result<()> {
+        log::info!("Memtable Flush Started...");
+
         // 1. write memtable to disk
         for (table_name, memtable) in memtable {
             let mut memtable = memtable.lock().await;
@@ -321,6 +327,9 @@ impl DiskTableManager {
                 return Err(Errors::WALStateFileHandleNotFound);
             }
         }
+
+        log::info!("Memtable Flush Completed Successfully.");
+
         Ok(())
     }
 }

@@ -16,6 +16,9 @@ use crate::{
 /// 인덱스 세그먼트 파일의 최대 크기 (1GB)
 const INDEX_SEGMENT_SIZE: u64 = 1024 * 1024 * 1024;
 
+/// BTree 노드의 고정 크기 (8KB)
+const NODE_SIZE: usize = 8192;
+
 /// BTree 노드의 타입
 #[derive(Debug, Clone, Copy, PartialEq, Eq, bincode::Encode, bincode::Decode)]
 pub enum BTreeNodeType {
@@ -369,7 +372,7 @@ impl BTreeIndex {
 
                 match decode_result {
                     Ok(_) => {
-                        log::info!("Index validation passed for table '{}'", self.table_name);
+                        log::debug!("Index validation passed for table '{}'", self.table_name);
                         true
                     }
                     Err(e) => {
@@ -499,7 +502,7 @@ impl BTreeIndex {
         Ok(node)
     }
 
-    /// 노드 쓰기
+    /// 노드 쓰기 (고정 크기 블록 사용)
     async fn write_node(&self, node: &BTreeNode) -> Result<BTreeNodePosition, Errors> {
         let mut meta_guard = self.metadata.lock().await;
         let logical_offset = meta_guard.next_offset;
@@ -513,6 +516,16 @@ impl BTreeIndex {
         // 노드 인코딩
         let encoded = bincode::encode_to_vec(node, bincode::config::standard())
             .map_err(|e| Errors::FileWriteError(format!("Failed to encode node: {}", e)))?;
+
+        // 고정 크기 블록 생성 (NODE_SIZE - 4 bytes for size header)
+        let max_data_size = NODE_SIZE - 4;
+        if encoded.len() > max_data_size {
+            return Err(Errors::FileWriteError(format!(
+                "Node size {} exceeds maximum block size {}",
+                encoded.len(),
+                max_data_size
+            )));
+        }
 
         let node_size = encoded.len() as u32;
         let size_bytes = node_size.to_be_bytes();
@@ -536,8 +549,22 @@ impl BTreeIndex {
             .await
             .map_err(|e| Errors::FileWriteError(format!("Failed to write node data: {}", e)))?;
 
-        // 오프셋 업데이트
-        meta_guard.next_offset += 4 + encoded.len() as u64;
+        // 나머지 공간을 0으로 패딩 (고정 크기 유지)
+        let padding_size = max_data_size - encoded.len();
+        if padding_size > 0 {
+            let padding = vec![0u8; padding_size];
+            file.write_all(&padding)
+                .await
+                .map_err(|e| Errors::FileWriteError(format!("Failed to write padding: {}", e)))?;
+        }
+
+        // fsync로 디스크에 확실히 기록
+        file.sync_all()
+            .await
+            .map_err(|e| Errors::FileWriteError(format!("Failed to sync node data: {}", e)))?;
+
+        // 오프셋 업데이트 (고정 크기 블록 사용)
+        meta_guard.next_offset += NODE_SIZE as u64;
 
         drop(meta_guard);
 
@@ -546,7 +573,7 @@ impl BTreeIndex {
         Ok(position)
     }
 
-    /// 노드 업데이트 (기존 위치에 덮어쓰기)
+    /// 노드 업데이트 (기존 위치에 in-place 덮어쓰기)
     async fn update_node(
         &self,
         position: BTreeNodePosition,
@@ -558,6 +585,16 @@ impl BTreeIndex {
         // 노드 인코딩
         let encoded = bincode::encode_to_vec(node, bincode::config::standard())
             .map_err(|e| Errors::FileWriteError(format!("Failed to encode node: {}", e)))?;
+
+        // 고정 크기 블록 체크
+        let max_data_size = NODE_SIZE - 4;
+        if encoded.len() > max_data_size {
+            return Err(Errors::FileWriteError(format!(
+                "Node size {} exceeds maximum block size {}",
+                encoded.len(),
+                max_data_size
+            )));
+        }
 
         let node_size = encoded.len() as u32;
         let size_bytes = node_size.to_be_bytes();
@@ -581,6 +618,20 @@ impl BTreeIndex {
             .await
             .map_err(|e| Errors::FileWriteError(format!("Failed to write node data: {}", e)))?;
 
+        // 나머지 공간을 0으로 패딩
+        let padding_size = max_data_size - encoded.len();
+        if padding_size > 0 {
+            let padding = vec![0u8; padding_size];
+            file.write_all(&padding)
+                .await
+                .map_err(|e| Errors::FileWriteError(format!("Failed to write padding: {}", e)))?;
+        }
+
+        // fsync로 디스크에 확실히 기록
+        file.sync_all()
+            .await
+            .map_err(|e| Errors::FileWriteError(format!("Failed to sync updated node: {}", e)))?;
+
         Ok(())
     }
 
@@ -589,7 +640,10 @@ impl BTreeIndex {
         let meta_guard = self.metadata.lock().await;
         let root_pos = match meta_guard.root_position {
             Some(pos) => pos,
-            None => return Ok(None), // 빈 트리
+            None => {
+                // 빈 트리
+                return Ok(None);
+            }
         };
         drop(meta_guard);
 
@@ -659,8 +713,26 @@ impl BTreeIndex {
         drop(meta_guard);
 
         // 삽입 수행
-        self.insert_into_node(root_pos, key, position, order)
-            .await?;
+        if let Some((split_key, new_node_pos)) = self
+            .insert_into_node(root_pos, key, position, order)
+            .await?
+        {
+            // 루트가 split되었으므로 새로운 internal 루트 생성
+            let mut new_root = BTreeNode::new_internal();
+            new_root.leftmost_child = Some(root_pos);
+            new_root.internal_entries.push(BTreeInternalEntry {
+                key: split_key,
+                child_position: new_node_pos,
+            });
+
+            let new_root_pos = self.write_node(&new_root).await?;
+
+            let mut meta_guard = self.metadata.lock().await;
+            meta_guard.root_position = Some(new_root_pos);
+            drop(meta_guard);
+
+            self.save_metadata().await?;
+        }
 
         Ok(())
     }
