@@ -7,7 +7,11 @@ use tokio::{
     sync::Mutex,
 };
 
-use crate::{config::TABLES_DIRECTORY, disktable::segment::TableRecordPosition, errors::Errors};
+use crate::{
+    config::{TABLES_DIRECTORY, TABLES_INDEX_DIRECTORY},
+    disktable::segment::TableRecordPosition,
+    errors::Errors,
+};
 
 /// 인덱스 세그먼트 파일의 최대 크기 (1GB)
 const INDEX_SEGMENT_SIZE: u64 = 1024 * 1024 * 1024;
@@ -124,7 +128,11 @@ impl BTreeIndex {
 
     /// 인덱스 파일 경로 반환 (세그먼트 번호 포함)
     fn index_file_path(&self, segment_number: u32) -> PathBuf {
-        let base = self.base_path.join(TABLES_DIRECTORY).join(&self.table_name);
+        let base = self
+            .base_path
+            .join(TABLES_DIRECTORY)
+            .join(&self.table_name)
+            .join(TABLES_INDEX_DIRECTORY);
 
         if segment_number == 0 {
             base.join("index.btree")
@@ -211,6 +219,7 @@ impl BTreeIndex {
         self.base_path
             .join(TABLES_DIRECTORY)
             .join(&self.table_name)
+            .join(TABLES_INDEX_DIRECTORY)
             .join("index.metadata")
     }
 
