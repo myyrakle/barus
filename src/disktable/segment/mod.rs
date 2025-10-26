@@ -476,12 +476,9 @@ impl TableSegmentManager {
         write_buffer.extend_from_slice(&encoded_bytes);
 
         let mut tables_map = self.tables_map.lock().await;
-        let Some(table) = tables_map.get_mut(table_name) else {
-            return Err(Errors::TableNotFound(format!(
-                "Table '{}' not found",
-                table_name
-            )));
-        };
+        let table = tables_map
+            .entry(table_name.to_owned())
+            .or_insert_with(|| TableSegmentStatePerTable::default());
 
         // 2. If the current page is full, create new page or new segment.
         if table.current_page_offset + total_bytes > table.segment_file_size {
