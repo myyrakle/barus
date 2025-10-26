@@ -411,8 +411,8 @@ impl BTreeIndex {
             .map_err(|e| Errors::FileReadError(format!("Failed to read directory entry: {}", e)))?
         {
             let path = entry.path();
-            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                if file_name.starts_with("index.btree") {
+            if let Some(file_name) = path.file_name().and_then(|n| n.to_str())
+                && file_name.starts_with("index.btree") {
                     tokio::fs::remove_file(&path).await.map_err(|e| {
                         Errors::FileWriteError(format!(
                             "Failed to remove file {}: {}",
@@ -421,7 +421,6 @@ impl BTreeIndex {
                         ))
                     })?;
                 }
-            }
         }
 
         Ok(())

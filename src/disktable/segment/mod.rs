@@ -98,7 +98,7 @@ impl TableSegmentManager {
         let mut tables_map = self.tables_map.lock().await;
         let table = tables_map
             .entry(table_name.to_owned())
-            .or_insert_with(|| TableSegmentStatePerTable::default());
+            .or_insert_with(TableSegmentStatePerTable::default);
 
         self.create_segment(table_name, table, DISKTABLE_PAGE_SIZE)
             .await?;
@@ -499,7 +499,7 @@ impl TableSegmentManager {
         let mut tables_map = self.tables_map.lock().await;
         let table = tables_map
             .entry(table_name.to_owned())
-            .or_insert_with(|| TableSegmentStatePerTable::default());
+            .or_insert_with(TableSegmentStatePerTable::default);
 
         // 2. If the current page is full, create new page or new segment.
         if table.current_page_offset + total_bytes > table.segment_file_size {
