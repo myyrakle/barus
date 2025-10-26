@@ -13,7 +13,7 @@ pub mod validate;
 pub mod wal;
 
 use db::DBEngine;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 #[cfg(target_os = "linux")]
 #[global_allocator]
@@ -28,6 +28,11 @@ fn setup_logging() {
     env_logger::init();
 }
 
+fn get_data_dir() -> PathBuf {
+    let path = std::env::var("BARUS_DATA_DIR").unwrap_or_else(|_| "data".to_string());
+    PathBuf::from(path)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logging();
@@ -35,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Initializing DB Engine...");
 
     // DB Engine 초기화 (한 번만)
-    let db_engine = DBEngine::initialize("data".into()).await?;
+    let db_engine = DBEngine::initialize(get_data_dir()).await?;
 
     // Arc로 감싸서 여러 서버가 공유
     let shared_db = Arc::new(db_engine);
