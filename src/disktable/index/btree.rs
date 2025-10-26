@@ -585,11 +585,6 @@ impl BTreeIndex {
                 .map_err(|e| Errors::FileWriteError(format!("Failed to write padding: {}", e)))?;
         }
 
-        // fsync로 디스크에 확실히 기록
-        file.sync_all()
-            .await
-            .map_err(|e| Errors::FileWriteError(format!("Failed to sync node data: {}", e)))?;
-
         // 4. 메타데이터 저장
         self.save_metadata().await?;
 
@@ -649,11 +644,6 @@ impl BTreeIndex {
                 .await
                 .map_err(|e| Errors::FileWriteError(format!("Failed to write padding: {}", e)))?;
         }
-
-        // fsync로 디스크에 확실히 기록
-        file.sync_all()
-            .await
-            .map_err(|e| Errors::FileWriteError(format!("Failed to sync updated node: {}", e)))?;
 
         Ok(())
     }
