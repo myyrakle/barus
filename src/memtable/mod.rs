@@ -309,10 +309,7 @@ impl MemtableManager {
             Some(memtable) => {
                 let mut memtable_lock = memtable.lock().await;
 
-                match memtable_lock.delete(&key) {
-                    Some(_) => (),
-                    None => return Err(Errors::ValueNotFound(format!("Key not found: {}", key))),
-                }
+                let _ = memtable_lock.delete(&key);
 
                 Ok(())
             }
