@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::{
-    config::TABLES_DIRECTORY,
+    config::{TABLES_DIRECTORY, TABLES_INDEX_DIRECTORY, TABLES_SEGMENT_DIRECTORY},
     disktable::{
         segment::{RecordStateFlags, TableRecordPayload},
         table::TableInfo,
@@ -29,7 +29,7 @@ impl DiskTableManager {
     pub fn new(base_path: std::path::PathBuf) -> Self {
         Self {
             base_path: base_path.clone(),
-            index_manager: index::IndexManager::new(),
+            index_manager: index::IndexManager::new(base_path.clone()),
             segment_manager: segment::TableSegmentManager::new(base_path),
         }
     }
@@ -129,7 +129,7 @@ impl DiskTableManager {
                 ))
             })?;
 
-        // 2. Create table segment directory
+        // 2. Create table directory
         let table_segment_directory = self.base_path.join(TABLES_DIRECTORY).join(table);
         if !table_segment_directory.exists() {
             tokio::fs::create_dir_all(&table_segment_directory)
@@ -141,6 +141,40 @@ impl DiskTableManager {
                     ))
                 })?;
         }
+
+        // 3. Create Table Segment Directory
+        let table_segment_directory = table_segment_directory.join(TABLES_SEGMENT_DIRECTORY);
+        if !table_segment_directory.exists() {
+            tokio::fs::create_dir_all(&table_segment_directory)
+                .await
+                .map_err(|e| {
+                    errors::Errors::TableCreationError(format!(
+                        "Failed to create table segment directory: {}",
+                        e
+                    ))
+                })?;
+        }
+
+        // 4. Create Table Index Directory
+        let table_index_directory = self
+            .base_path
+            .join(TABLES_DIRECTORY)
+            .join(table)
+            .join(TABLES_INDEX_DIRECTORY);
+
+        if !table_index_directory.exists() {
+            tokio::fs::create_dir_all(&table_index_directory)
+                .await
+                .map_err(|e| {
+                    errors::Errors::TableCreationError(format!(
+                        "Failed to create table index directory: {}",
+                        e
+                    ))
+                })?;
+        }
+
+        // 5. Create First Segment File
+        self.segment_manager.initialize_table(table).await?;
 
         Ok(())
     }
@@ -184,10 +218,10 @@ impl DiskTableManager {
     pub async fn get_value(
         &self,
         table_name: &str,
-        _key: &str,
+        key: &str,
     ) -> errors::Result<DisktableGetResult> {
         // 1. find record position from index
-        let Some(position) = self.index_manager.find_record(table_name, _key).await? else {
+        let Some(position) = self.index_manager.find_record(table_name, key).await? else {
             return Ok(DisktableGetResult::NotFound);
         };
 
@@ -247,6 +281,8 @@ impl DiskTableManager {
         wal_state: Arc<Mutex<WALGlobalState>>,
         wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     ) -> errors::Result<()> {
+        log::info!("Memtable Flush Started...");
+
         // 1. write memtable to disk
         for (table_name, memtable) in memtable {
             let mut memtable = memtable.lock().await;
@@ -287,6 +323,9 @@ impl DiskTableManager {
                 return Err(Errors::WALStateFileHandleNotFound);
             }
         }
+
+        log::info!("Memtable Flush Completed Successfully.");
+
         Ok(())
     }
 }

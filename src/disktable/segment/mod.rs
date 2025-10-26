@@ -9,7 +9,7 @@ use tokio::{
 use crate::{
     config::{
         DISKTABLE_PAGE_SIZE, DISKTABLE_SEGMENT_SIZE, TABLE_SEGMENT_RECORD_HEADER_SIZE,
-        TABLES_DIRECTORY,
+        TABLES_DIRECTORY, TABLES_SEGMENT_DIRECTORY,
     },
     disktable::segment::{
         encode::{TableRecordBincodeCodec, TableRecordCodec},
@@ -64,7 +64,7 @@ pub struct ListSegmentFileItem {
     pub file_size: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, bincode::Decode, bincode::Encode)]
 pub struct TableRecordPosition {
     pub segment_id: TableSegmentID,
     pub offset: u32,
@@ -93,11 +93,28 @@ impl TableSegmentManager {
         }
     }
 
+    // Table Initialization
+    pub async fn initialize_table(&self, table_name: &str) -> errors::Result<()> {
+        let mut tables_map = self.tables_map.lock().await;
+        let table = tables_map
+            .entry(table_name.to_owned())
+            .or_insert_with(TableSegmentStatePerTable::default);
+
+        self.create_segment(table_name, table, DISKTABLE_PAGE_SIZE)
+            .await?;
+
+        Ok(())
+    }
+
     pub async fn list_segment_files(
         &self,
         table_name: &str,
     ) -> errors::Result<Vec<ListSegmentFileItem>> {
-        let table_directory = self.base_path.join(TABLES_DIRECTORY).join(table_name);
+        let table_directory = self
+            .base_path
+            .join(TABLES_DIRECTORY)
+            .join(table_name)
+            .join(TABLES_SEGMENT_DIRECTORY);
 
         // 1. 모든 세그먼트 파일 읽기 (파일만 필터링해서 파일명 반환)
         let mut segment_files: Vec<_> = std::fs::read_dir(&table_directory)
@@ -147,6 +164,7 @@ impl TableSegmentManager {
             .base_path
             .join(TABLES_DIRECTORY)
             .join(table_name)
+            .join(TABLES_SEGMENT_DIRECTORY)
             .join(segment_file_name);
 
         let mut file = File::open(&file_path).await.map_err(|e| {
@@ -269,6 +287,7 @@ impl TableSegmentManager {
             .base_path
             .join(TABLES_DIRECTORY)
             .join(table_name)
+            .join(TABLES_SEGMENT_DIRECTORY)
             .join(file_name);
 
         let mut file = File::open(&file_path).await.map_err(|e| {
@@ -362,6 +381,7 @@ impl TableSegmentManager {
             .base_path
             .join(TABLES_DIRECTORY)
             .join(table_name)
+            .join(TABLES_SEGMENT_DIRECTORY)
             .join(segment_filename);
 
         let file = OpenOptions::new()
@@ -393,6 +413,7 @@ impl TableSegmentManager {
             .base_path
             .join(TABLES_DIRECTORY)
             .join(table_name)
+            .join(TABLES_SEGMENT_DIRECTORY)
             .join(segment_filename);
 
         let mut file = OpenOptions::new()
@@ -476,12 +497,9 @@ impl TableSegmentManager {
         write_buffer.extend_from_slice(&encoded_bytes);
 
         let mut tables_map = self.tables_map.lock().await;
-        let Some(table) = tables_map.get_mut(table_name) else {
-            return Err(Errors::TableNotFound(format!(
-                "Table '{}' not found",
-                table_name
-            )));
-        };
+        let table = tables_map
+            .entry(table_name.to_owned())
+            .or_insert_with(TableSegmentStatePerTable::default);
 
         // 2. If the current page is full, create new page or new segment.
         if table.current_page_offset + total_bytes > table.segment_file_size {
