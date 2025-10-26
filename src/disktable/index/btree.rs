@@ -169,6 +169,7 @@ impl BTreeIndex {
 
         // 파일 열기 또는 생성
         let path = self.index_file_path(segment_number);
+
         let file = if path.exists() {
             OpenOptions::new()
                 .read(true)
@@ -430,11 +431,24 @@ impl BTreeIndex {
     /// 메타데이터 저장
     async fn save_metadata(&self) -> Result<(), Errors> {
         let metadata_path = self.metadata_file_path();
-        let meta_guard = self.metadata.lock().await;
 
-        let encoded = bincode::encode_to_vec(&*meta_guard, bincode::config::standard())
-            .map_err(|e| Errors::FileWriteError(format!("Failed to encode metadata: {}", e)))?;
+        // 락을 짧게 잡고 인코딩만 수행
+        let encoded = {
+            let meta_guard = self.metadata.lock().await;
+            bincode::encode_to_vec(&*meta_guard, bincode::config::standard())
+                .map_err(|e| Errors::FileWriteError(format!("Failed to encode metadata: {}", e)))?
+        }; // 락 해제
 
+        // 디렉터리 생성 보장
+        if let Some(parent) = metadata_path.parent() {
+            if !parent.exists() {
+                tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                    Errors::FileWriteError(format!("Failed to create index directory: {}", e))
+                })?;
+            }
+        }
+
+        // 락 없이 파일 쓰기
         tokio::fs::write(&metadata_path, encoded)
             .await
             .map_err(|e| Errors::FileWriteError(format!("Failed to write metadata file: {}", e)))?;
@@ -522,16 +536,16 @@ impl BTreeIndex {
         let (logical_offset, segment_number, segment_offset) = {
             let mut meta_guard = self.metadata.lock().await;
             let logical_offset = meta_guard.next_offset;
-            
+
             // 오프셋 즉시 증가 (예약)
             meta_guard.next_offset += NODE_SIZE as u64;
-            
+
             // 세그먼트 정보 계산
             let (seg_num, seg_off) = self.offset_to_segment(logical_offset);
-            
+
             // 락 해제
             drop(meta_guard);
-            
+
             (logical_offset, seg_num, seg_off)
         };
 
