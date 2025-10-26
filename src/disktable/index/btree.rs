@@ -504,20 +504,11 @@ impl BTreeIndex {
 
     /// 노드 쓰기 (고정 크기 블록 사용)
     async fn write_node(&self, node: &BTreeNode) -> Result<BTreeNodePosition, Errors> {
-        let mut meta_guard = self.metadata.lock().await;
-        let logical_offset = meta_guard.next_offset;
-        let position = BTreeNodePosition {
-            offset: logical_offset,
-        };
-
-        // 논리적 오프셋을 세그먼트 정보로 변환
-        let (segment_number, segment_offset) = self.offset_to_segment(logical_offset);
-
-        // 노드 인코딩
+        // 1. 노드 인코딩 (락 없이)
         let encoded = bincode::encode_to_vec(node, bincode::config::standard())
             .map_err(|e| Errors::FileWriteError(format!("Failed to encode node: {}", e)))?;
 
-        // 고정 크기 블록 생성 (NODE_SIZE - 4 bytes for size header)
+        // 고정 크기 블록 검증
         let max_data_size = NODE_SIZE - 4;
         if encoded.len() > max_data_size {
             return Err(Errors::FileWriteError(format!(
@@ -527,6 +518,28 @@ impl BTreeIndex {
             )));
         }
 
+        // 2. 오프셋 예약 (락을 짧게 잡고 즉시 해제)
+        let (logical_offset, segment_number, segment_offset) = {
+            let mut meta_guard = self.metadata.lock().await;
+            let logical_offset = meta_guard.next_offset;
+            
+            // 오프셋 즉시 증가 (예약)
+            meta_guard.next_offset += NODE_SIZE as u64;
+            
+            // 세그먼트 정보 계산
+            let (seg_num, seg_off) = self.offset_to_segment(logical_offset);
+            
+            // 락 해제
+            drop(meta_guard);
+            
+            (logical_offset, seg_num, seg_off)
+        };
+
+        let position = BTreeNodePosition {
+            offset: logical_offset,
+        };
+
+        // 3. 파일 I/O 수행 (락 없이)
         let node_size = encoded.len() as u32;
         let size_bytes = node_size.to_be_bytes();
 
@@ -563,11 +576,7 @@ impl BTreeIndex {
             .await
             .map_err(|e| Errors::FileWriteError(format!("Failed to sync node data: {}", e)))?;
 
-        // 오프셋 업데이트 (고정 크기 블록 사용)
-        meta_guard.next_offset += NODE_SIZE as u64;
-
-        drop(meta_guard);
-
+        // 4. 메타데이터 저장
         self.save_metadata().await?;
 
         Ok(position)
@@ -732,7 +741,7 @@ impl BTreeIndex {
             let mut old_root = self.read_node(root_pos).await?;
             old_root.parent = Some(new_root_pos);
             self.update_node(root_pos, &old_root).await?;
-            
+
             // 2. 분할된 새 노드
             let mut split_node = self.read_node(new_node_pos).await?;
             split_node.parent = Some(new_root_pos);
@@ -805,7 +814,7 @@ impl BTreeIndex {
                         let mut new_child = self.read_node(new_child_pos).await?;
                         new_child.parent = Some(node_pos);
                         self.update_node(new_child_pos, &new_child).await?;
-                        
+
                         // 분할된 노드 처리
                         node.internal_entries.insert(
                             insert_index,
@@ -871,7 +880,7 @@ impl BTreeIndex {
         new_node.parent = node.parent;
 
         let new_node_pos = self.write_node(&new_node).await?;
-        
+
         // new_node로 이동한 자식 노드들의 parent 포인터 갱신
         // 1. leftmost_child 갱신
         if let Some(child_pos) = new_node.leftmost_child {
@@ -879,14 +888,14 @@ impl BTreeIndex {
             child.parent = Some(new_node_pos);
             self.update_node(child_pos, &child).await?;
         }
-        
+
         // 2. internal_entries의 모든 자식들 갱신
         for entry in &new_node.internal_entries {
             let mut child = self.read_node(entry.child_position).await?;
             child.parent = Some(new_node_pos);
             self.update_node(entry.child_position, &child).await?;
         }
-        
+
         self.update_node(node_pos, &node).await?;
 
         Ok(Some((split_key, new_node_pos)))
