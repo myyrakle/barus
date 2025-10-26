@@ -384,6 +384,9 @@ impl HashMemtable {
             entry.value = None;
             Some(old_size)
         } else {
+            self.table
+                .insert(key.to_string(), MemtableEntry { value: None });
+
             None
         }
     }
