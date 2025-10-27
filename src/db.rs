@@ -24,7 +24,7 @@ pub struct DBEngine {
     system_info: SystemInfo,
     #[allow(dead_code)]
     base_path: PathBuf,
-    wal_manager: Arc<Mutex<WALManager>>,
+    wal_manager: Arc<WALManager>,
     memtable_manager: Arc<MemtableManager>,
     disktable_manager: Arc<DiskTableManager>,
     compaction_manager: Arc<Mutex<CompactionManager>>,
@@ -73,13 +73,11 @@ impl DBEngine {
         // 3. Initialize and load the WAL manager
         log::info!("Initializing WAL manager...");
         let wal_manager = {
-            let mut wal_manager =
-                WALManager::new(Box::new(WALRecordBincodeCodec {}), base_path.clone());
+            let wal_manager =
+                WALManager::initialize(Box::new(WALRecordBincodeCodec {}), base_path.clone())
+                    .await?;
 
-            wal_manager.initialize().await?;
-            wal_manager.load().await?;
-
-            wal_manager
+            Arc::new(wal_manager)
         };
 
         // 4. Memtable Load
@@ -143,7 +141,7 @@ impl DBEngine {
         let mut manager = Self {
             system_info,
             base_path: base_path.clone(),
-            wal_manager: Arc::new(Mutex::new(wal_manager)),
+            wal_manager,
             memtable_manager: Arc::new(memtable_manager),
             disktable_manager,
             compaction_manager: Arc::new(Mutex::new(compaction_manager)),
@@ -159,7 +157,7 @@ impl DBEngine {
 
     async fn start_background(&mut self) -> errors::Result<()> {
         {
-            self.wal_manager.lock().await.start_background()?;
+            self.wal_manager.start_background()?;
         }
 
         {
@@ -173,7 +171,7 @@ impl DBEngine {
                 handle_shutdown().await;
                 log::info!("Graceful shutdown started");
 
-                if let Err(error) = wal_manager.lock().await.flush_wal().await {
+                if let Err(error) = wal_manager.flush_wal().await {
                     log::error!("Failed to flush WAL: {}", error);
                 }
                 log::info!("WAL flushed");
@@ -189,7 +187,7 @@ impl DBEngine {
     pub async fn get_db_status(&self) -> errors::Result<DBStatusResponse> {
         let table_count = self.disktable_manager.list_tables().await?.len();
         let memtable_size = self.memtable_manager.get_memtable_current_size()?;
-        let wal_total_size = self.wal_manager.lock().await.total_file_size().await?;
+        let wal_total_size = self.wal_manager.total_file_size().await?;
 
         let status = DBStatusResponse {
             table_count,
@@ -261,7 +259,7 @@ impl DBEngine {
 
         // 2. Truncate table in WAL Manager
         {
-            self.wal_manager.lock().await.truncate_table(table).await?;
+            self.wal_manager.truncate_table(table).await?;
         }
 
         // 3. Truncate table in Disktable Manager
@@ -344,7 +342,7 @@ impl DBEngine {
 
         // 2. WAL write
         {
-            self.wal_manager.lock().await.append(wal_record).await?;
+            self.wal_manager.append(wal_record).await?;
         }
 
         // 3. Memtable update
@@ -373,7 +371,7 @@ impl DBEngine {
 
         // 2. WAL write
         {
-            self.wal_manager.lock().await.append(wal_record).await?;
+            self.wal_manager.append(wal_record).await?;
         }
 
         // 3. Memtable update
@@ -386,7 +384,7 @@ impl DBEngine {
 
     /// Flushes the WAL to disk.
     pub async fn flush_wal(&self) -> errors::Result<()> {
-        self.wal_manager.lock().await.flush_wal().await?;
+        self.wal_manager.flush_wal().await?;
 
         Ok(())
     }
