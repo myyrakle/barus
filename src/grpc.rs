@@ -15,7 +15,7 @@ use barus::{
     DropTableResponse, FlushMemtableRequest, FlushMemtableResponse, FlushWalRequest,
     FlushWalResponse, GetDbStatusRequest, GetDbStatusResponse, GetRequest, GetResponse,
     GetTableRequest, GetTableResponse, HealthRequest, HealthResponse, ListTablesRequest,
-    ListTablesResponse, PutRequest, PutResponse, TableInfo,
+    ListTablesResponse, PutRequest, PutResponse, TableInfo, TruncateRequest, TruncateResponse,
 };
 
 pub struct BarusGrpcService {
@@ -235,6 +235,38 @@ impl BarusService for BarusGrpcService {
                     ))),
                 }
             }
+        }
+    }
+
+    async fn truncate(
+        &self,
+        request: Request<TruncateRequest>,
+    ) -> Result<Response<TruncateResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.table.is_empty() {
+            return Err(Status::invalid_argument("table name cannot be empty"));
+        }
+
+        // For now, we'll implement truncate as dropping and recreating the table
+        // This ensures all data (memtable, WAL, disk segments, indexes) is cleared
+        match self.db.delete_table(&req.table).await {
+            Ok(_) => {
+                // Recreate the table after deletion
+                match self.db.create_table(&req.table).await {
+                    Ok(_) => Ok(Response::new(TruncateResponse {
+                        message: format!("Table '{}' truncated successfully", req.table),
+                    })),
+                    Err(e) => Err(Status::internal(format!(
+                        "Failed to recreate table '{}' after truncation: {:?}",
+                        req.table, e
+                    ))),
+                }
+            }
+            Err(e) => Err(Status::internal(format!(
+                "Failed to truncate table '{}': {:?}",
+                req.table, e
+            ))),
         }
     }
 }

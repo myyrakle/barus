@@ -16,6 +16,9 @@ service BarusService {
   // Drop a table
   rpc DropTable(DropTableRequest) returns (DropTableResponse);
 
+  // Truncate a table (remove all data while keeping table schema)
+  rpc Truncate(TruncateRequest) returns (TruncateResponse);
+
   // Get a value by key
   rpc Get(GetRequest) returns (GetResponse);
 
@@ -102,6 +105,16 @@ message DropTableRequest {
 }
 
 message DropTableResponse {
+  string message = 1;
+}
+
+message TruncateRequest {
+  // Table to truncate
+  string table = 1;
+}
+
+message TruncateResponse {
+  // Human readable message or empty on success
   string message = 1;
 }
 
