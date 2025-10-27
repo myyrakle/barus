@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::{
     config::{TABLES_DIRECTORY, TABLES_INDEX_DIRECTORY, TABLES_SEGMENT_DIRECTORY},
@@ -288,16 +288,18 @@ impl DiskTableManager {
 
     pub async fn write_memtable(
         &self,
-        memtable: HashMap<String, Arc<Mutex<HashMemtable>>>,
+        memtable: Arc<RwLock<HashMap<String, Arc<RwLock<HashMemtable>>>>>,
         wal_state: Arc<Mutex<WALGlobalState>>,
         wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     ) -> errors::Result<()> {
         log::info!("Memtable Flush Started...");
         let start_time = std::time::Instant::now();
 
+        let memtable = memtable.read().await;
+
         // 1. write memtable to disk
-        for (table_name, memtable) in memtable {
-            let mut memtable = memtable.lock().await;
+        for (table_name, memtable_lock) in memtable.iter() {
+            let memtable = memtable_lock.read().await;
             let entry_count = memtable.table.len();
 
             log::trace!("Flushing table '{}': {} entries", table_name, entry_count);
@@ -335,7 +337,10 @@ impl DiskTableManager {
 
             log::trace!("Table '{}': flushed {} entries", table_name, entry_count);
 
+            drop(memtable);
+
             // 1.3. destroy memtable. now, we can find data in disk
+            let mut memtable = memtable_lock.write().await;
             memtable.table.clear();
         }
 

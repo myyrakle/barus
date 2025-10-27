@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use tokio::sync::{Mutex, mpsc::Receiver};
+use tokio::sync::{Mutex, RwLock, mpsc::Receiver};
 
 use crate::{
     disktable::DiskTableManager,
@@ -14,7 +14,7 @@ use crate::{
 
 #[derive(Default)]
 pub struct MemtableFlushEvent {
-    pub memtable: HashMap<String, Arc<Mutex<HashMemtable>>>,
+    pub memtable: Arc<RwLock<HashMap<String, Arc<RwLock<HashMemtable>>>>>,
     pub wal_state: Arc<Mutex<WALGlobalState>>,
 }
 
@@ -27,11 +27,13 @@ pub struct CompactionManager {
 
     // borrowed from wal manager
     wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
+
+    wal_manager: Arc<WALManager>,
 }
 
 impl CompactionManager {
     pub fn new(
-        wal_manager: &WALManager,
+        wal_manager: Arc<WALManager>,
         memtable_manager: &mut MemtableManager,
         disktable_manager: Arc<DiskTableManager>,
     ) -> Self {
@@ -43,6 +45,7 @@ impl CompactionManager {
             wal_state_write_handles: wal_manager.wal_state_write_handles.clone(),
             memtable_flush_receiver: receiver,
             disktable_manager: disktable_manager.clone(),
+            wal_manager,
         }
     }
 
@@ -58,6 +61,7 @@ impl CompactionManager {
             std::mem::replace(&mut self.memtable_flush_receiver, fake_receiver);
 
         let disk_manager = self.disktable_manager.clone();
+        let wal_manager = self.wal_manager.clone();
         let wal_state_write_handles = self.wal_state_write_handles.clone();
 
         tokio::spawn(async move {
@@ -74,6 +78,10 @@ impl CompactionManager {
                     .await
                 {
                     log::error!("Failed to write memtable: {}", error);
+                }
+
+                if let Err(error) = wal_manager.remove_old_wal_segments().await {
+                    log::error!("Failed to remove old WAL segments: {}", error);
                 }
             }
         });

@@ -31,8 +31,12 @@ pub struct WALManager {
 }
 
 impl WALManager {
-    pub fn new(codec: Box<dyn WALRecordCodec + Send + Sync>, base_path: PathBuf) -> Self {
-        Self {
+    // Initialize the WAL system (create directories, load state, etc.)
+    pub async fn initialize(
+        codec: Box<dyn WALRecordCodec + Send + Sync>,
+        base_path: PathBuf,
+    ) -> errors::Result<Self> {
+        let mut manager = Self {
             codec,
             base_path,
             wal_state: Arc::new(Mutex::new(Default::default())),
@@ -41,24 +45,23 @@ impl WALManager {
                 state_file: None,
             })),
             background_fsync_duration: Some(std::time::Duration::from_secs(10)),
-        }
-    }
+        };
 
-    // Initialize the WAL system (create directories, load state, etc.)
-    pub async fn initialize(&self) -> errors::Result<()> {
         // 1. create WAL directory if not exists
-        let wal_dir_path = self.base_path.join(WAL_DIRECTORY);
+        let wal_dir_path = manager.base_path.join(WAL_DIRECTORY);
         if !wal_dir_path.exists() {
             std::fs::create_dir_all(&wal_dir_path)
                 .map_err(|e| errors::Errors::WALInitializationError(e.to_string()))?;
         }
 
         // 2. create WAL state file if not exists
-        let wal_state_path = self.base_path.join(WAL_STATE_PATH);
+        let wal_state_path = manager.base_path.join(WAL_STATE_PATH);
         if !wal_state_path.exists() {
             let initial_state = WALGlobalState::default();
 
-            let mut file_handle = initial_state.get_file_init_handle(&self.base_path).await?;
+            let mut file_handle = initial_state
+                .get_file_init_handle(&manager.base_path)
+                .await?;
             initial_state.save(&mut file_handle).await?;
         }
 
@@ -94,46 +97,49 @@ impl WALManager {
                 })?;
         }
 
-        Ok(())
-    }
-
-    // Load WAL states from the state file
-    pub async fn load(&mut self) -> errors::Result<()> {
-        // 1. Load the WAL global state from the state file
-        self.wal_state = Arc::new(Mutex::new(WALGlobalState::load(&self.base_path).await?));
-
+        // Load WAL states from the state file
         {
-            self.wal_state_write_handles.lock().await.state_file = Some(
-                self.wal_state
-                    .lock()
-                    .await
-                    .get_file_handle(&self.base_path)
-                    .await?,
-            );
+            // 1. Load the WAL global state from the state file
+            manager.wal_state =
+                Arc::new(Mutex::new(WALGlobalState::load(&manager.base_path).await?));
+
+            {
+                manager.wal_state_write_handles.lock().await.state_file = Some(
+                    manager
+                        .wal_state
+                        .lock()
+                        .await
+                        .get_file_handle(&manager.base_path)
+                        .await?,
+                );
+            }
+
+            // 2. last_record_id & last_segment_file_offset by scanning the last segment file
+            manager.recover_state().await?;
+
+            // 3. Load file stream for the current segment
+            let segment_file_name = manager.get_current_segment_file_name().await?;
+            let segment_file_path = manager
+                .base_path
+                .join(WAL_DIRECTORY)
+                .join(segment_file_name);
+
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&segment_file_path)
+                .await
+                .map_err(|e| {
+                    errors::Errors::WALSegmentFileOpenError(format!(
+                        "Failed to open WAL segment file: {}",
+                        e
+                    ))
+                })?;
+
+            *manager.wal_write_handles.lock().await = WALSegmentWriteHandle::new(file).await?;
         }
 
-        // 2. last_record_id & last_segment_file_offset by scanning the last segment file
-        self.recover_state().await?;
-
-        // 3. Load file stream for the current segment
-        let segment_file_name = self.get_current_segment_file_name().await?;
-        let segment_file_path = self.base_path.join(WAL_DIRECTORY).join(segment_file_name);
-
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&segment_file_path)
-            .await
-            .map_err(|e| {
-                errors::Errors::WALSegmentFileOpenError(format!(
-                    "Failed to open WAL segment file: {}",
-                    e
-                ))
-            })?;
-
-        *self.wal_write_handles.lock().await = WALSegmentWriteHandle::new(file).await?;
-
-        Ok(())
+        Ok(manager)
     }
 
     // recover state (read wal segments)
@@ -206,6 +212,35 @@ impl WALManager {
         Ok(())
     }
 
+    // Remove all old WAL segment files
+    pub async fn remove_old_wal_segments(&self) -> errors::Result<()> {
+        let last_checkpoint_segment_id = {
+            let state = self.wal_state.lock().await;
+            state.last_checkpoint_segment_id.clone()
+        };
+
+        let segment_files = self.list_segment_files().await?;
+        for segment_file in segment_files {
+            let segment_id = WALSegmentID::try_from(segment_file.as_str())?;
+
+            if segment_id < last_checkpoint_segment_id {
+                let segment_file_path = self.base_path.join(WAL_DIRECTORY).join(&segment_file);
+
+                tokio::fs::remove_file(&segment_file_path)
+                    .await
+                    .or_else(|e| match e.kind() {
+                        std::io::ErrorKind::NotFound => Ok(()),
+                        _ => Err(errors::Errors::WALSegmentFileDeleteError(format!(
+                            "Failed to delete WAL segment file {}: {}",
+                            segment_file, e
+                        ))),
+                    })?;
+            }
+        }
+
+        Ok(())
+    }
+
     // get total size of wal files
     pub async fn total_file_size(&self) -> errors::Result<u64> {
         let wal_dir = self.base_path.join(WAL_DIRECTORY);
@@ -233,7 +268,7 @@ impl WALManager {
     }
 
     // Append a new record to the WAL
-    pub async fn append(&mut self, mut record: WALRecord) -> errors::Result<()> {
+    pub async fn append(&self, mut record: WALRecord) -> errors::Result<()> {
         // 1. Get Write Lock
         let write_mutex = self.wal_write_handles.clone();
 
@@ -284,7 +319,7 @@ impl WALManager {
         Ok(())
     }
 
-    pub async fn truncate_table(&mut self, table_name: &str) -> errors::Result<()> {
+    pub async fn truncate_table(&self, table_name: &str) -> errors::Result<()> {
         let wal_record = WALRecord {
             record_id: 0,
             record_type: RecordType::Truncate,
@@ -376,21 +411,12 @@ impl WALManager {
         Ok((records, offset))
     }
 
-    // Move the checkpoint to the specified segment and record ID
-    // pub async fn move_checkpoint(&mut self, segment_id: u64, record_id: u64) -> errors::Result<()> {
-    //     self.state.last_checkpoint_segment_id = WALSegmentID::new(segment_id);
-    //     self.state.last_checkpoint_record_id = record_id;
-    //     self.save_state().await?;
-
-    //     Ok(())
-    // }
-
     async fn get_current_segment_file_name(&self) -> errors::Result<String> {
         let segment_id_str: String = (&self.wal_state.lock().await.last_segment_id).into();
         Ok(segment_id_str)
     }
 
-    async fn new_segment_file(&mut self) -> errors::Result<WALSegmentWriteHandle> {
+    async fn new_segment_file(&self) -> errors::Result<WALSegmentWriteHandle> {
         let new_segment_id = {
             let mut state = self.wal_state.lock().await;
             state.last_segment_id.increment();
