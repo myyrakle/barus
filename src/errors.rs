@@ -11,6 +11,7 @@ pub enum Errors {
     WALStateWriteError(String),
     WALSegmentIDParseError(String),
     WALSegmentFileOpenError(String),
+    WALSegmentFileDeleteError(String),
 
     // Table related errors
     TableSegmentIDParseError(String),
@@ -59,6 +60,9 @@ impl std::fmt::Display for Errors {
             Errors::WALSegmentIDParseError(msg) => write!(f, "WAL Segment ID Parse Error: {}", msg),
             Errors::WALSegmentFileOpenError(msg) => {
                 write!(f, "WAL Segment File Open Error: {}", msg)
+            }
+            Errors::WALSegmentFileDeleteError(msg) => {
+                write!(f, "WAL Segment File Delete Error: {}", msg)
             }
             Errors::TableSegmentIDParseError(msg) => {
                 write!(f, "Table Segment ID Parse Error: {}", msg)

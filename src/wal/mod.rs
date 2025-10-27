@@ -206,6 +206,35 @@ impl WALManager {
         Ok(())
     }
 
+    // Remove all old WAL segment files
+    pub async fn remove_old_wal_segments(&self) -> errors::Result<()> {
+        let last_checkpoint_segment_id = {
+            let state = self.wal_state.lock().await;
+            state.last_checkpoint_segment_id.clone()
+        };
+
+        let segment_files = self.list_segment_files().await?;
+        for segment_file in segment_files {
+            let segment_id = WALSegmentID::try_from(segment_file.as_str())?;
+
+            if segment_id < last_checkpoint_segment_id {
+                let segment_file_path = self.base_path.join(WAL_DIRECTORY).join(&segment_file);
+
+                tokio::fs::remove_file(&segment_file_path)
+                    .await
+                    .or_else(|e| match e.kind() {
+                        std::io::ErrorKind::NotFound => Ok(()),
+                        _ => Err(errors::Errors::WALSegmentFileDeleteError(format!(
+                            "Failed to delete WAL segment file {}: {}",
+                            segment_file, e
+                        ))),
+                    })?;
+            }
+        }
+
+        Ok(())
+    }
+
     // get total size of wal files
     pub async fn total_file_size(&self) -> errors::Result<u64> {
         let wal_dir = self.base_path.join(WAL_DIRECTORY);
@@ -375,15 +404,6 @@ impl WALManager {
 
         Ok((records, offset))
     }
-
-    // Move the checkpoint to the specified segment and record ID
-    // pub async fn move_checkpoint(&mut self, segment_id: u64, record_id: u64) -> errors::Result<()> {
-    //     self.state.last_checkpoint_segment_id = WALSegmentID::new(segment_id);
-    //     self.state.last_checkpoint_record_id = record_id;
-    //     self.save_state().await?;
-
-    //     Ok(())
-    // }
 
     async fn get_current_segment_file_name(&self) -> errors::Result<String> {
         let segment_id_str: String = (&self.wal_state.lock().await.last_segment_id).into();
