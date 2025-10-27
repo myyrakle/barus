@@ -119,10 +119,10 @@ impl TableSegmentManager {
             .await
             .or_else(|e| {
                 if e.kind() != std::io::ErrorKind::NotFound {
-                    return Err(Errors::FileDeleteError(format!(
+                    Err(Errors::FileDeleteError(format!(
                         "Failed to delete segment files: {}",
                         e
-                    )));
+                    )))
                 } else {
                     Ok(())
                 }
@@ -133,11 +133,11 @@ impl TableSegmentManager {
             .await
             .or_else(|e| {
                 if e.kind() != std::io::ErrorKind::AlreadyExists {
-                    return Err(Errors::FileDeleteError(format!(
+                    Err(Errors::FileDeleteError(format!(
                         "Failed to recreate segments directory '{}': {}",
                         segments_directory.display(),
                         e
-                    )));
+                    )))
                 } else {
                     Ok(())
                 }
