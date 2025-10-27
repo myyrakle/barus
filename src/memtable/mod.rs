@@ -180,13 +180,10 @@ impl MemtableManager {
                 std::mem::swap(&mut *memtable_map, &mut *flushing_memtable);
             }
 
-            let mut flushing_memtable = self.flushing_memtable_map.write().await;
-            let flushing_memtable = std::mem::take(&mut *flushing_memtable);
-
             let _ = self
                 .memtable_flush_sender
                 .send(MemtableFlushEvent {
-                    memtable: flushing_memtable,
+                    memtable: self.flushing_memtable_map.clone(),
                     wal_state: self.wal_state.clone(),
                 })
                 .await;

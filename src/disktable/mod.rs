@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::{
     config::{TABLES_DIRECTORY, TABLES_INDEX_DIRECTORY, TABLES_SEGMENT_DIRECTORY},
@@ -288,15 +288,17 @@ impl DiskTableManager {
 
     pub async fn write_memtable(
         &self,
-        memtable: HashMap<String, Arc<Mutex<HashMemtable>>>,
+        memtable: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
         wal_state: Arc<Mutex<WALGlobalState>>,
         wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     ) -> errors::Result<()> {
         log::info!("Memtable Flush Started...");
         let start_time = std::time::Instant::now();
 
+        let memtable = memtable.read().await;
+
         // 1. write memtable to disk
-        for (table_name, memtable) in memtable {
+        for (table_name, memtable) in memtable.iter() {
             let mut memtable = memtable.lock().await;
             let entry_count = memtable.table.len();
 

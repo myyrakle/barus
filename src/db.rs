@@ -258,9 +258,7 @@ impl DBEngine {
         validate_table_name(table)?;
 
         // 2. Truncate table in WAL Manager
-        {
-            self.wal_manager.truncate_table(table).await?;
-        }
+        self.wal_manager.truncate_table(table).await?;
 
         // 3. Truncate table in Disktable Manager
         self.disktable_manager.truncate_table(table).await?;
@@ -295,7 +293,7 @@ impl DBEngine {
 
         let memtable_result = self.memtable_manager.get_from_flushing(table, key).await?;
 
-        // 2.
+        // 3. Try to get from flushing Memtable
         match memtable_result {
             MemtableGetResult::Deleted => {
                 return Err(errors::Errors::ValueNotFound(format!(

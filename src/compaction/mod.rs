@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use tokio::sync::{Mutex, mpsc::Receiver};
+use tokio::sync::{Mutex, RwLock, mpsc::Receiver};
 
 use crate::{
     disktable::DiskTableManager,
@@ -14,7 +14,7 @@ use crate::{
 
 #[derive(Default)]
 pub struct MemtableFlushEvent {
-    pub memtable: HashMap<String, Arc<Mutex<HashMemtable>>>,
+    pub memtable: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
     pub wal_state: Arc<Mutex<WALGlobalState>>,
 }
 
