@@ -218,6 +218,9 @@ impl MemtableManager {
             }
         }
 
+        // 3. clear current size
+        self.memtable_current_size.store(0, Ordering::SeqCst);
+
         Ok(())
     }
 
