@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use tokio::sync::Mutex;
 
-use crate::{disktable::segment::TableRecordPosition, errors::Errors};
+use crate::{config::TABLES_DIRECTORY, disktable::segment::TableRecordPosition, errors::Errors};
 
 pub mod btree;
 
@@ -18,6 +18,33 @@ impl IndexManager {
             base_path,
             indices: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    // delete index file and remove from in-memory map
+    pub async fn delete_index(&self, table_name: &str) -> Result<(), Errors> {
+        // 1. remove all file
+        let index_path = self
+            .base_path
+            .join(TABLES_DIRECTORY)
+            .join(table_name)
+            .join("indices");
+
+        tokio::fs::remove_dir_all(index_path).await.or_else(|e| {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                Err(Errors::FileDeleteError(format!(
+                    "Failed to delete index files: {}",
+                    e
+                )))
+            } else {
+                Ok(())
+            }
+        })?;
+
+        // 2. remove from in-memory map
+        let mut indices = self.indices.lock().await;
+        indices.remove(table_name);
+
+        Ok(())
     }
 
     /// 테이블의 인덱스 가져오기 또는 생성

@@ -103,6 +103,11 @@ impl MemtableManager {
                         }
                     }
                 }
+                RecordType::Truncate => {
+                    let payload = record.data;
+
+                    self.truncate_table(&payload.table).await?;
+                }
             }
         }
 
@@ -190,6 +195,31 @@ impl MemtableManager {
         } else {
             return Err(errors::Errors::MemtableFlushAlreadyInProgress);
         }
+
+        Ok(())
+    }
+
+    pub async fn truncate_table(&self, table_name: &str) -> errors::Result<()> {
+        // 1. remove from memtable_map
+        {
+            let mut memtable_map = self.memtable_map.write().await;
+
+            if let Some(table_map) = memtable_map.get_mut(table_name) {
+                table_map.lock().await.clear();
+            }
+        }
+
+        // 2. remove from flushing_memtable_map
+        {
+            let mut flushing_memtable_map = self.flushing_memtable_map.write().await;
+
+            if let Some(table_map) = flushing_memtable_map.get_mut(table_name) {
+                table_map.lock().await.clear();
+            }
+        }
+
+        // 3. clear current size
+        self.memtable_current_size.store(0, Ordering::SeqCst);
 
         Ok(())
     }
@@ -326,6 +356,12 @@ pub struct MemtableEntry {
 #[derive(Debug)]
 pub struct HashMemtable {
     pub(crate) table: HashMap<String, MemtableEntry>,
+}
+
+impl HashMemtable {
+    pub fn clear(&mut self) {
+        self.table.clear();
+    }
 }
 
 pub const MEMTABLE_CAPACITY: usize = 100000;

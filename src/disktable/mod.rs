@@ -215,6 +215,17 @@ impl DiskTableManager {
         Ok(())
     }
 
+    // truncate table data
+    pub async fn truncate_table(&self, table_name: &str) -> errors::Result<()> {
+        // 1. truncate segment files
+        self.segment_manager.truncate_table(table_name).await?;
+
+        // 2. delete index files
+        self.index_manager.delete_index(table_name).await?;
+
+        Ok(())
+    }
+
     pub async fn get_value(
         &self,
         table_name: &str,

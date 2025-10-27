@@ -426,13 +426,12 @@ impl BTreeIndex {
         }; // 락 해제
 
         // 디렉터리 생성 보장
-        if let Some(parent) = metadata_path.parent() {
-            if !parent.exists() {
+        if let Some(parent) = metadata_path.parent()
+            && !parent.exists() {
                 tokio::fs::create_dir_all(parent).await.map_err(|e| {
                     Errors::FileWriteError(format!("Failed to create index directory: {}", e))
                 })?;
             }
-        }
 
         // 락 없이 파일 쓰기
         tokio::fs::write(&metadata_path, &encoded)
@@ -967,9 +966,7 @@ impl BTreeIndex {
 
         // mid 위치의 엔트리를 pop하여 new_node의 leftmost_child로 설정
         let mid_entry = node.internal_entries.pop().ok_or_else(|| {
-            Errors::FileReadError(format!(
-                "Internal node split failed: no entry at mid position. This should never happen."
-            ))
+            Errors::FileReadError("Internal node split failed: no entry at mid position. This should never happen.".to_string())
         })?;
 
         new_node.leftmost_child = Some(mid_entry.child_position);

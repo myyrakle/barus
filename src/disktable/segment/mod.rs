@@ -96,12 +96,53 @@ impl TableSegmentManager {
     // Table Initialization
     pub async fn initialize_table(&self, table_name: &str) -> errors::Result<()> {
         let mut tables_map = self.tables_map.lock().await;
-        let table = tables_map
+        let _ = tables_map
             .entry(table_name.to_owned())
             .or_insert_with(TableSegmentStatePerTable::default);
 
-        self.create_segment(table_name, table, DISKTABLE_PAGE_SIZE)
-            .await?;
+        Ok(())
+    }
+
+    // Truncate table (delete all segment files and recreate)
+    pub async fn truncate_table(&self, table_name: &str) -> errors::Result<()> {
+        let segments_directory = self
+            .base_path
+            .join(TABLES_DIRECTORY)
+            .join(table_name)
+            .join(TABLES_SEGMENT_DIRECTORY);
+
+        // 1. remove all segment files
+        tokio::fs::remove_dir_all(&segments_directory)
+            .await
+            .or_else(|e| {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    Err(Errors::FileDeleteError(format!(
+                        "Failed to delete segment files: {}",
+                        e
+                    )))
+                } else {
+                    Ok(())
+                }
+            })?;
+
+        // 2. recreate segments directory
+        tokio::fs::create_dir_all(&segments_directory)
+            .await
+            .or_else(|e| {
+                if e.kind() != std::io::ErrorKind::AlreadyExists {
+                    Err(Errors::FileDeleteError(format!(
+                        "Failed to recreate segments directory '{}': {}",
+                        segments_directory.display(),
+                        e
+                    )))
+                } else {
+                    Ok(())
+                }
+            })?;
+
+        // 3. reset table state
+        let mut tables_map = self.tables_map.lock().await;
+        let _ = tables_map.remove(table_name);
 
         Ok(())
     }
@@ -503,9 +544,11 @@ impl TableSegmentManager {
 
         // 2. If the current page is full, create new page or new segment.
         if table.current_page_offset + total_bytes > table.segment_file_size {
-            // 3-a. If the segment size reaches its maximum size, a new segment is created.
+            // 3-a. If the segment size reaches its maximum size (or not exist), a new segment is created.
             // 3-b. If the segment size not reaches its maximum size, segment size grows. (new page)
-            if table.segment_file_size + total_bytes > DISKTABLE_SEGMENT_SIZE {
+            if table.segment_file_size == 0
+                || table.segment_file_size + total_bytes > DISKTABLE_SEGMENT_SIZE
+            {
                 self.create_segment(table_name, table, DISKTABLE_PAGE_SIZE)
                     .await?;
             } else {

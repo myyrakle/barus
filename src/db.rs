@@ -253,6 +253,26 @@ impl DBEngine {
         Ok(())
     }
 
+    /// Truncate Table
+    /// Deletes all data in the table
+    pub async fn truncate_table(&self, table: &str) -> errors::Result<()> {
+        // 1. Validation
+        validate_table_name(table)?;
+
+        // 2. Truncate table in WAL Manager
+        {
+            self.wal_manager.lock().await.truncate_table(table).await?;
+        }
+
+        // 3. Truncate table in Disktable Manager
+        self.disktable_manager.truncate_table(table).await?;
+
+        // 4. Truncate table in Memtable Manager
+        self.memtable_manager.truncate_table(table).await?;
+
+        Ok(())
+    }
+
     /// Gets the value for the given table and key.
     pub async fn get_value(&self, table: &str, key: &str) -> errors::Result<GetResponse> {
         // 1. Validation

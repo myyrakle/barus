@@ -7,7 +7,7 @@ use crate::{
     os::file_resize_and_set_zero,
     wal::{
         encode::WALRecordCodec,
-        record::WALRecord,
+        record::{RecordType, WALPayload, WALRecord},
         segment::{WALSegmentID, WALSegmentWriteHandle},
         state::{WALGlobalState, WALStateWriteHandles},
     },
@@ -282,6 +282,20 @@ impl WALManager {
         }
 
         Ok(())
+    }
+
+    pub async fn truncate_table(&mut self, table_name: &str) -> errors::Result<()> {
+        let wal_record = WALRecord {
+            record_id: 0,
+            record_type: RecordType::Truncate,
+            data: WALPayload {
+                table: table_name.to_string(),
+                key: String::new(),
+                value: None,
+            },
+        };
+
+        self.append(wal_record).await
     }
 
     // listup WAL segment files

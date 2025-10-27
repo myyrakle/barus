@@ -19,6 +19,7 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
         .route("/tables/{table}", get(get_table))
         .route("/tables/{table}", post(create_table))
         .route("/tables/{table}", delete(delete_table))
+        .route("/tables/{table}/truncate", post(truncate_table))
         .route("/tables/{table}/value", get(get_value))
         .route("/tables/{table}/value", put(put_value))
         .route("/tables/{table}/value", delete(delete_value))
@@ -217,6 +218,36 @@ async fn delete_table(
             }
             _ => {
                 let error_message = format!("Error deleting table '{}': {:?}", table, e);
+                Response::builder().status(500).body(error_message).unwrap()
+            }
+        },
+    }
+}
+
+async fn truncate_table(
+    Extension(db): Extension<Arc<DBEngine>>,
+    Path(table): Path<String>,
+) -> impl IntoResponse {
+    match db.truncate_table(&table).await {
+        Ok(_) => Response::builder()
+            .status(200)
+            .body(format!("Table '{}' truncated successfully", table))
+            .unwrap(),
+        Err(e) => match e {
+            Errors::TableNameIsEmpty => {
+                let error_message = "Table name is empty".to_string();
+                Response::builder().status(400).body(error_message).unwrap()
+            }
+            Errors::TableNameTooLong => {
+                let error_message = "Table name is too long".to_string();
+                Response::builder().status(400).body(error_message).unwrap()
+            }
+            Errors::TableNameIsInvalid(_) => {
+                let error_message = "Table name is invalid".to_string();
+                Response::builder().status(400).body(error_message).unwrap()
+            }
+            _ => {
+                let error_message = format!("Error truncating table '{}': {:?}", table, e);
                 Response::builder().status(500).body(error_message).unwrap()
             }
         },
