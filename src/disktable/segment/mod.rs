@@ -96,12 +96,9 @@ impl TableSegmentManager {
     // Table Initialization
     pub async fn initialize_table(&self, table_name: &str) -> errors::Result<()> {
         let mut tables_map = self.tables_map.lock().await;
-        let table = tables_map
+        let _ = tables_map
             .entry(table_name.to_owned())
             .or_insert_with(TableSegmentStatePerTable::default);
-
-        self.create_segment(table_name, table, DISKTABLE_PAGE_SIZE)
-            .await?;
 
         Ok(())
     }
@@ -146,9 +143,6 @@ impl TableSegmentManager {
         // 3. reset table state
         let mut tables_map = self.tables_map.lock().await;
         let _ = tables_map.remove(table_name);
-
-        // 4. initialize table again
-        self.initialize_table(table_name).await?;
 
         Ok(())
     }
@@ -550,9 +544,11 @@ impl TableSegmentManager {
 
         // 2. If the current page is full, create new page or new segment.
         if table.current_page_offset + total_bytes > table.segment_file_size {
-            // 3-a. If the segment size reaches its maximum size, a new segment is created.
+            // 3-a. If the segment size reaches its maximum size (or not exist), a new segment is created.
             // 3-b. If the segment size not reaches its maximum size, segment size grows. (new page)
-            if table.segment_file_size + total_bytes > DISKTABLE_SEGMENT_SIZE {
+            if table.segment_file_size == 0
+                || table.segment_file_size + total_bytes > DISKTABLE_SEGMENT_SIZE
+            {
                 self.create_segment(table_name, table, DISKTABLE_PAGE_SIZE)
                     .await?;
             } else {
