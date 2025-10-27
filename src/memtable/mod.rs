@@ -21,9 +21,9 @@ use crate::{
 
 #[derive(Debug)]
 pub struct MemtableManager {
-    pub(crate) memtable_map: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
+    pub(crate) memtable_map: Arc<RwLock<HashMap<String, Arc<RwLock<HashMemtable>>>>>,
     pub(crate) memtable_current_size: Arc<AtomicU64>,
-    pub(crate) flushing_memtable_map: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
+    pub(crate) flushing_memtable_map: Arc<RwLock<HashMap<String, Arc<RwLock<HashMemtable>>>>>,
     pub(crate) block_write: Arc<AtomicBool>,
     #[allow(dead_code)]
     memtable_size_soft_limit: usize,
@@ -126,7 +126,7 @@ impl MemtableManager {
         let mut memtable_map = self.memtable_map.write().await;
 
         if !memtable_map.contains_key(table) {
-            let memtable = Arc::new(Mutex::new(HashMemtable::new()));
+            let memtable = Arc::new(RwLock::new(HashMemtable::new()));
             memtable_map.insert(table.to_string(), memtable);
         }
 
@@ -144,7 +144,7 @@ impl MemtableManager {
         // 2. Decrement the current size
         if let Some(deleted_table) = delete_result {
             let reclaimed: u64 = deleted_table
-                .lock()
+                .read()
                 .await
                 .table
                 .values()
@@ -174,7 +174,7 @@ impl MemtableManager {
                 let mut flushing_memtable = self.flushing_memtable_map.write().await;
                 for table in memtable_map.keys() {
                     flushing_memtable
-                        .insert(table.clone(), Arc::new(Mutex::new(HashMemtable::new())));
+                        .insert(table.clone(), Arc::new(RwLock::new(HashMemtable::new())));
                 }
 
                 std::mem::swap(&mut *memtable_map, &mut *flushing_memtable);
@@ -202,7 +202,7 @@ impl MemtableManager {
             let mut memtable_map = self.memtable_map.write().await;
 
             if let Some(table_map) = memtable_map.get_mut(table_name) {
-                table_map.lock().await.clear();
+                table_map.write().await.clear();
             }
         }
 
@@ -211,7 +211,7 @@ impl MemtableManager {
             let mut flushing_memtable_map = self.flushing_memtable_map.write().await;
 
             if let Some(table_map) = flushing_memtable_map.get_mut(table_name) {
-                table_map.lock().await.clear();
+                table_map.write().await.clear();
             }
         }
 
@@ -274,7 +274,7 @@ impl MemtableManager {
         };
 
         // 3. put the key-value into the memtable
-        let mut memtable_lock = memtable.lock().await;
+        let mut memtable_lock = memtable.write().await;
         let old_value_size = memtable_lock.put(key, value);
 
         // 4. adjust current size if there was an old value
@@ -291,7 +291,7 @@ impl MemtableManager {
 
         match memtable_map.get(table) {
             Some(memtable) => {
-                let memtable_lock = memtable.lock().await;
+                let memtable_lock = memtable.read().await;
 
                 Ok(memtable_lock.get(key))
             }
@@ -308,7 +308,7 @@ impl MemtableManager {
 
         match memtable_map.get(table) {
             Some(memtable) => {
-                let memtable_lock = memtable.lock().await;
+                let memtable_lock = memtable.read().await;
 
                 Ok(memtable_lock.get(key))
             }
@@ -334,7 +334,7 @@ impl MemtableManager {
 
         match memtable_map.get(&table) {
             Some(memtable) => {
-                let mut memtable_lock = memtable.lock().await;
+                let mut memtable_lock = memtable.write().await;
 
                 let _ = memtable_lock.delete(&key);
 

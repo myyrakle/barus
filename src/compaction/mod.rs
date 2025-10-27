@@ -14,7 +14,7 @@ use crate::{
 
 #[derive(Default)]
 pub struct MemtableFlushEvent {
-    pub memtable: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
+    pub memtable: Arc<RwLock<HashMap<String, Arc<RwLock<HashMemtable>>>>>,
     pub wal_state: Arc<Mutex<WALGlobalState>>,
 }
 

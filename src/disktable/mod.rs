@@ -288,7 +288,7 @@ impl DiskTableManager {
 
     pub async fn write_memtable(
         &self,
-        memtable: Arc<RwLock<HashMap<String, Arc<Mutex<HashMemtable>>>>>,
+        memtable: Arc<RwLock<HashMap<String, Arc<RwLock<HashMemtable>>>>>,
         wal_state: Arc<Mutex<WALGlobalState>>,
         wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     ) -> errors::Result<()> {
@@ -298,8 +298,8 @@ impl DiskTableManager {
         let memtable = memtable.read().await;
 
         // 1. write memtable to disk
-        for (table_name, memtable) in memtable.iter() {
-            let mut memtable = memtable.lock().await;
+        for (table_name, memtable_lock) in memtable.iter() {
+            let memtable = memtable_lock.read().await;
             let entry_count = memtable.table.len();
 
             log::trace!("Flushing table '{}': {} entries", table_name, entry_count);
@@ -337,7 +337,10 @@ impl DiskTableManager {
 
             log::trace!("Table '{}': flushed {} entries", table_name, entry_count);
 
+            drop(memtable);
+
             // 1.3. destroy memtable. now, we can find data in disk
+            let mut memtable = memtable_lock.write().await;
             memtable.table.clear();
         }
 
