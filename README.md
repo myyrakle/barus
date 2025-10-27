@@ -1,6 +1,6 @@
 # barus
 
-![](https://img.shields.io/badge/language-Rust-red) ![](https://img.shields.io/badge/version-0.0.1-brightgreen) [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/myyrakle/barus/blob/master/LICENSE)
+![](https://img.shields.io/badge/language-Rust-red) ![](https://img.shields.io/badge/version-0.0.2-brightgreen) [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/myyrakle/barus/blob/master/LICENSE)
 
 - lightweight key/value storage
 
