@@ -49,4 +49,6 @@ pub enum RecordType {
     Put,
     #[serde(rename = "delete")]
     Delete,
+    #[serde(rename = "truncate")]
+    Truncate,
 }

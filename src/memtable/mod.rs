@@ -103,6 +103,11 @@ impl MemtableManager {
                         }
                     }
                 }
+                RecordType::Truncate => {
+                    let payload = record.data;
+
+                    self.truncate(&payload.table).await?;
+                }
             }
         }
 
