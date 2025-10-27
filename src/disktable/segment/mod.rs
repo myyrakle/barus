@@ -106,6 +106,45 @@ impl TableSegmentManager {
         Ok(())
     }
 
+    pub async fn truncate_table(&self, table_name: &str) -> errors::Result<()> {
+        let segments_directory = self
+            .base_path
+            .join(TABLES_DIRECTORY)
+            .join(table_name)
+            .join(TABLES_SEGMENT_DIRECTORY);
+
+        // 1. remove all segment files
+        tokio::fs::remove_dir_all(&segments_directory)
+            .await
+            .map_err(|e| {
+                Errors::FileDeleteError(format!(
+                    "Failed to delete segment files in '{}': {}",
+                    segments_directory.display(),
+                    e
+                ))
+            })?;
+
+        // 2. recreate segments directory
+        tokio::fs::create_dir_all(&segments_directory)
+            .await
+            .map_err(|e| {
+                Errors::FileDeleteError(format!(
+                    "Failed to recreate segments directory '{}': {}",
+                    segments_directory.display(),
+                    e
+                ))
+            })?;
+
+        // 3. reset table state
+        let mut tables_map = self.tables_map.lock().await;
+        let _ = tables_map.remove(table_name);
+
+        // 4. initialize table again
+        self.initialize_table(table_name).await?;
+
+        Ok(())
+    }
+
     pub async fn list_segment_files(
         &self,
         table_name: &str,
