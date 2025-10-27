@@ -21,7 +21,7 @@ impl IndexManager {
     }
 
     // delete index file and remove from in-memory map
-    async fn delete_index(&self, table_name: &str) -> Result<(), Errors> {
+    pub async fn delete_index(&self, table_name: &str) -> Result<(), Errors> {
         // 1. remove all file
         let index_path = self
             .base_path

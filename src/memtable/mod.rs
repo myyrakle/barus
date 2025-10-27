@@ -106,7 +106,7 @@ impl MemtableManager {
                 RecordType::Truncate => {
                     let payload = record.data;
 
-                    self.truncate(&payload.table).await?;
+                    self.truncate_table(&payload.table).await?;
                 }
             }
         }
@@ -199,7 +199,7 @@ impl MemtableManager {
         Ok(())
     }
 
-    pub async fn truncate(&self, table_name: &str) -> errors::Result<()> {
+    pub async fn truncate_table(&self, table_name: &str) -> errors::Result<()> {
         // 1. remove from memtable_map
         {
             let mut memtable_map = self.memtable_map.write().await;

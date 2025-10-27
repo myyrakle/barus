@@ -106,6 +106,7 @@ impl TableSegmentManager {
         Ok(())
     }
 
+    // Truncate table (delete all segment files and recreate)
     pub async fn truncate_table(&self, table_name: &str) -> errors::Result<()> {
         let segments_directory = self
             .base_path
@@ -116,23 +117,30 @@ impl TableSegmentManager {
         // 1. remove all segment files
         tokio::fs::remove_dir_all(&segments_directory)
             .await
-            .map_err(|e| {
-                Errors::FileDeleteError(format!(
-                    "Failed to delete segment files in '{}': {}",
-                    segments_directory.display(),
-                    e
-                ))
+            .or_else(|e| {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    return Err(Errors::FileDeleteError(format!(
+                        "Failed to delete segment files: {}",
+                        e
+                    )));
+                } else {
+                    Ok(())
+                }
             })?;
 
         // 2. recreate segments directory
         tokio::fs::create_dir_all(&segments_directory)
             .await
-            .map_err(|e| {
-                Errors::FileDeleteError(format!(
-                    "Failed to recreate segments directory '{}': {}",
-                    segments_directory.display(),
-                    e
-                ))
+            .or_else(|e| {
+                if e.kind() != std::io::ErrorKind::AlreadyExists {
+                    return Err(Errors::FileDeleteError(format!(
+                        "Failed to recreate segments directory '{}': {}",
+                        segments_directory.display(),
+                        e
+                    )));
+                } else {
+                    Ok(())
+                }
             })?;
 
         // 3. reset table state
