@@ -97,7 +97,7 @@ impl DBEngine {
         // 6. compaction manager load
         log::info!("Initializing compaction manager...");
         let compaction_manager = CompactionManager::new(
-            &wal_manager,
+            wal_manager.clone(),
             &mut memtable_manager,
             disktable_manager.clone(),
         );
