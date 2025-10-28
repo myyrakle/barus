@@ -1,7 +1,5 @@
 use std::cmp::Ordering;
 
-use memmap2::MmapMut;
-
 use crate::errors;
 
 // 16 length hex ID (ex 0000000D000000EA)
@@ -65,49 +63,5 @@ impl TryFrom<&str> for WALSegmentID {
         })?;
 
         Ok(WALSegmentID(id))
-    }
-}
-
-pub struct WALSegmentWriteHandle {
-    pub(crate) mmap: MmapMut,
-}
-
-impl WALSegmentWriteHandle {
-    // empty writer (for initialization)
-    pub fn empty() -> Self {
-        Self {
-            mmap: MmapMut::map_anon(0).unwrap(),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.mmap.len() == 0
-    }
-
-    pub async fn new(file: tokio::fs::File) -> errors::Result<Self> {
-        let mmap = unsafe {
-            MmapMut::map_mut(&file).map_err(|e| {
-                errors::Errors::WALSegmentFileOpenError(format!(
-                    "Failed to mmap WAL segment file: {}",
-                    e
-                ))
-            })?
-        };
-
-        Ok(Self { mmap })
-    }
-
-    // pub fn write(&mut self, data: &[u8]) -> errors::Result<()> {
-    //     let len = data.len();
-    //     self.mmap[self.offset..self.offset + len].copy_from_slice(data);
-    //     self.offset += len;
-    //     Ok(())
-    // }
-
-    pub fn flush(&self) -> errors::Result<()> {
-        self.mmap.flush().map_err(|e| {
-            errors::Errors::WALRecordWriteError(format!("Failed to flush WAL segment mmap: {}", e))
-        })?;
-        Ok(())
     }
 }

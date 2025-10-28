@@ -1,16 +1,13 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 
 use crate::{
     config::{TABLES_DIRECTORY, TABLES_INDEX_DIRECTORY, TABLES_SEGMENT_DIRECTORY},
-    disktable::{
-        segment::{RecordStateFlags, TableRecordPayload},
-        table::TableInfo,
-    },
+    disktable::{segment::record::TableSegmentPayload, table::TableInfo},
     errors::{self, Errors},
-    memtable::HashMemtable,
-    wal::state::{WALGlobalState, WALStateWriteHandles},
+    memtable::MemtableMap,
+    wal::{SharedWALState, state::WALStateWriteHandles},
 };
 
 pub mod index;
@@ -242,7 +239,7 @@ impl DiskTableManager {
             .find_record(table_name, position)
             .await?;
 
-        if flag == RecordStateFlags::Deleted {
+        if flag.is_deleted() {
             return Ok(DisktableGetResult::Deleted);
         }
 
@@ -260,7 +257,7 @@ impl DiskTableManager {
             .segment_manager
             .append_record(
                 table_name,
-                TableRecordPayload {
+                TableSegmentPayload {
                     key: key.to_owned(),
                     value: value.to_owned(),
                 },
@@ -288,8 +285,8 @@ impl DiskTableManager {
 
     pub async fn write_memtable(
         &self,
-        memtable: Arc<RwLock<HashMap<String, Arc<RwLock<HashMemtable>>>>>,
-        wal_state: Arc<Mutex<WALGlobalState>>,
+        memtable: MemtableMap,
+        wal_state: SharedWALState,
         wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     ) -> errors::Result<()> {
         log::info!("Memtable Flush Started...");
@@ -300,13 +297,13 @@ impl DiskTableManager {
         // 1. write memtable to disk
         for (table_name, memtable_lock) in memtable.iter() {
             let memtable = memtable_lock.read().await;
-            let entry_count = memtable.table.len();
+            let entry_count = memtable.kv_map.len();
 
             log::trace!("Flushing table '{}': {} entries", table_name, entry_count);
             let mut processed = 0;
             let report_interval = (entry_count / 10).max(1000); // 10% 또는 최소 1000개마다 리포트
 
-            for (key, memtable_entry) in memtable.table.iter() {
+            for (key, memtable_entry) in memtable.kv_map.iter() {
                 match &memtable_entry.value {
                     // Insert/Update Process
                     Some(value) => {
@@ -341,14 +338,14 @@ impl DiskTableManager {
 
             // 1.3. destroy memtable. now, we can find data in disk
             let mut memtable = memtable_lock.write().await;
-            memtable.table.clear();
+            memtable.kv_map.clear();
         }
 
         // 2. move WAL checkpoint
         {
             let mut wal_state = wal_state.lock().await;
 
-            wal_state.last_checkpoint_record_id = wal_state.last_record_id;
+            wal_state.last_checkpoint_record_id = wal_state.last_record_id.to_owned();
             wal_state.last_checkpoint_segment_id = wal_state.last_segment_id.clone();
             let mut write_handle = wal_state_write_handles.lock().await;
 

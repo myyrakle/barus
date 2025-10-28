@@ -13,74 +13,27 @@ use crate::{
     },
     disktable::segment::{
         encode::{TableRecordBincodeCodec, TableRecordCodec},
-        id::TableSegmentID,
+        position::TableRecordPosition,
+        record::{RecordStateFlags, TableSegmentPayload},
+        segment_id::TableSegmentID,
+        state::TableSegmentState,
     },
     errors::{self, Errors},
     os::file_resize_and_set_zero,
 };
 
 pub mod encode;
-pub mod id;
+pub mod position;
 pub mod record;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum RecordStateFlags {
-    Nothing,
-    Alive,
-    Deleted,
-    Unknown = 255,
-}
-
-impl From<u8> for RecordStateFlags {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => RecordStateFlags::Nothing,
-            1 => RecordStateFlags::Alive,
-            2 => RecordStateFlags::Deleted,
-            _ => RecordStateFlags::Unknown,
-        }
-    }
-}
+pub mod segment_id;
+pub mod state;
 
 #[derive(Debug)]
 pub struct TableSegmentManager {
     codec: Box<dyn TableRecordCodec + Send + Sync>,
     base_path: PathBuf,
-    tables_map: Arc<Mutex<HashMap<String, TableSegmentStatePerTable>>>,
+    tables_map: Arc<Mutex<HashMap<String, TableSegmentState>>>,
     file_rw_lock: Arc<Mutex<HashMap<String, Arc<RwLock<()>>>>>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct TableSegmentStatePerTable {
-    last_segment_id: TableSegmentID,
-    segment_file_size: u32,
-    current_page_offset: u32, // real offset in segment file
-    current_page_index: u32,  // current page number in segment file (0-based index)
-}
-
-pub struct ListSegmentFileItem {
-    pub file_name: String,
-    pub file_size: u32,
-}
-
-#[derive(Debug, Clone, bincode::Decode, bincode::Encode)]
-pub struct TableRecordPosition {
-    pub segment_id: TableSegmentID,
-    pub offset: u32,
-}
-
-#[derive(Debug, Clone, bincode::Decode, bincode::Encode)]
-pub struct TableRecordPayload {
-    pub key: String,
-    pub value: String,
-}
-
-#[derive(Debug)]
-pub struct ScanSegmentFileItem {
-    pub state_flags: RecordStateFlags,
-    pub position: TableRecordPosition,
-    pub payload: TableRecordPayload,
 }
 
 impl TableSegmentManager {
@@ -98,7 +51,7 @@ impl TableSegmentManager {
         let mut tables_map = self.tables_map.lock().await;
         let _ = tables_map
             .entry(table_name.to_owned())
-            .or_insert_with(TableSegmentStatePerTable::default);
+            .or_insert_with(TableSegmentState::default);
 
         Ok(())
     }
@@ -150,7 +103,7 @@ impl TableSegmentManager {
     pub async fn list_segment_files(
         &self,
         table_name: &str,
-    ) -> errors::Result<Vec<ListSegmentFileItem>> {
+    ) -> errors::Result<Vec<ListSegmentFileResultItem>> {
         let table_directory = self
             .base_path
             .join(TABLES_DIRECTORY)
@@ -178,7 +131,7 @@ impl TableSegmentManager {
                             return None;
                         };
 
-                        Some(ListSegmentFileItem {
+                        Some(ListSegmentFileResultItem {
                             file_name,
                             file_size,
                         })
@@ -200,7 +153,7 @@ impl TableSegmentManager {
         &self,
         table_name: &str,
         segment_file_name: &str,
-    ) -> errors::Result<Vec<ScanSegmentFileItem>> {
+    ) -> errors::Result<Vec<ScanSegmentFileResult>> {
         let file_path = self
             .base_path
             .join(TABLES_DIRECTORY)
@@ -274,7 +227,7 @@ impl TableSegmentManager {
 
                 let record = self.codec.decode(payload)?;
 
-                scan_items.push(ScanSegmentFileItem {
+                scan_items.push(ScanSegmentFileResult {
                     state_flags: flag_header,
                     position: TableRecordPosition {
                         segment_id: TableSegmentID::try_from(segment_file_name).unwrap_or_default(),
@@ -301,7 +254,7 @@ impl TableSegmentManager {
             match last_segment_id.0 {
                 0 => {
                     let mut table_map = self.tables_map.lock().await;
-                    table_map.insert(table_name, TableSegmentStatePerTable::default());
+                    table_map.insert(table_name, TableSegmentState::default());
                 }
                 _ => {
                     let describe_result = self
@@ -321,7 +274,7 @@ impl TableSegmentManager {
         &self,
         table_name: &str,
         segment_id: &TableSegmentID,
-    ) -> errors::Result<TableSegmentStatePerTable> {
+    ) -> errors::Result<TableSegmentState> {
         let file_name: String = segment_id.into();
 
         let file_path = self
@@ -402,7 +355,7 @@ impl TableSegmentManager {
             offset += TABLE_SEGMENT_RECORD_HEADER_SIZE + size_header;
         }
 
-        Ok(TableSegmentStatePerTable {
+        Ok(TableSegmentState {
             last_segment_id: segment_id.clone(),
             segment_file_size: file_size,
             current_page_index,
@@ -439,7 +392,7 @@ impl TableSegmentManager {
     pub async fn create_segment(
         &self,
         table_name: &str,
-        table_state: &mut TableSegmentStatePerTable,
+        table_state: &mut TableSegmentState,
         size: u32,
     ) -> errors::Result<File> {
         // 2. Create new segment file
@@ -474,7 +427,7 @@ impl TableSegmentManager {
     pub async fn increase_segment(
         &self,
         table_name: &str,
-        table_state: &mut TableSegmentStatePerTable,
+        table_state: &mut TableSegmentState,
         size: u32,
     ) -> errors::Result<File> {
         let mut file = self
@@ -514,7 +467,7 @@ impl TableSegmentManager {
     pub async fn append_record(
         &self,
         table_name: &str,
-        record: TableRecordPayload,
+        record: TableSegmentPayload,
     ) -> Result<TableRecordPosition, Errors> {
         // 1. Payload Prepare
         let encoded_bytes = self.codec.encode(&record)?;
@@ -540,7 +493,7 @@ impl TableSegmentManager {
         let mut tables_map = self.tables_map.lock().await;
         let table = tables_map
             .entry(table_name.to_owned())
-            .or_insert_with(TableSegmentStatePerTable::default);
+            .or_insert_with(TableSegmentState::default);
 
         // 2. If the current page is full, create new page or new segment.
         if table.current_page_offset + total_bytes > table.segment_file_size {
@@ -585,7 +538,7 @@ impl TableSegmentManager {
         &self,
         table_name: &str,
         position: TableRecordPosition,
-    ) -> Result<(RecordStateFlags, TableRecordPayload), Errors> {
+    ) -> Result<(RecordStateFlags, TableSegmentPayload), Errors> {
         let segment_file_lock = self
             .lock_segment_file(table_name, &position.segment_id)
             .await;
@@ -649,4 +602,17 @@ impl TableSegmentManager {
 
         Ok(())
     }
+}
+
+#[derive(Debug)]
+pub struct ListSegmentFileResultItem {
+    pub file_name: String,
+    pub file_size: u32,
+}
+
+#[derive(Debug)]
+pub struct ScanSegmentFileResult {
+    pub state_flags: RecordStateFlags,
+    pub position: TableRecordPosition,
+    pub payload: TableSegmentPayload,
 }

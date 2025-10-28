@@ -3,10 +3,10 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::{
-    compaction::CompactionManager,
+    bridge::BridgeController,
     disktable::{DiskTableManager, DisktableGetResult, table::TableInfo},
     errors,
-    memtable::{MemtableGetResult, MemtableManager},
+    memtable::{MemtableManager, table::MemtableGetValueResult},
     os::handle_shutdown,
     system::{SystemInfo, get_system_info},
     validate::{validate_key, validate_table_name, validate_value},
@@ -14,7 +14,7 @@ use crate::{
         self, WALManager,
         encode::WALRecordBincodeCodec,
         record::{WALPayload, WALRecord},
-        segment::WALSegmentID,
+        segment_id::WALSegmentID,
     },
 };
 
@@ -27,7 +27,7 @@ pub struct DBEngine {
     wal_manager: Arc<WALManager>,
     memtable_manager: Arc<MemtableManager>,
     disktable_manager: Arc<DiskTableManager>,
-    compaction_manager: Arc<Mutex<CompactionManager>>,
+    compaction_manager: Arc<Mutex<BridgeController>>,
 }
 
 pub struct GetResponse {
@@ -96,7 +96,7 @@ impl DBEngine {
 
         // 6. compaction manager load
         log::info!("Initializing compaction manager...");
-        let compaction_manager = CompactionManager::new(
+        let compaction_manager = BridgeController::new(
             wal_manager.clone(),
             &mut memtable_manager,
             disktable_manager.clone(),
@@ -276,35 +276,38 @@ impl DBEngine {
         validate_key(key)?;
 
         // 2. Try to get from Memtable
-        let memtable_result = self.memtable_manager.get(table, key).await?;
+        let memtable_result = self.memtable_manager.get_value(table, key).await?;
 
         match memtable_result {
-            MemtableGetResult::Deleted => {
+            MemtableGetValueResult::Deleted => {
                 return Err(errors::Errors::ValueNotFound(format!(
                     "Key not found (deleted): {}",
                     key
                 )));
             }
-            MemtableGetResult::Found(value) => {
+            MemtableGetValueResult::Found(value) => {
                 return Ok(GetResponse { value });
             }
-            MemtableGetResult::NotFound => {}
+            MemtableGetValueResult::NotFound => {}
         }
 
-        let memtable_result = self.memtable_manager.get_from_flushing(table, key).await?;
+        let memtable_result = self
+            .memtable_manager
+            .get_value_from_flushing(table, key)
+            .await?;
 
         // 3. Try to get from flushing Memtable
         match memtable_result {
-            MemtableGetResult::Deleted => {
+            MemtableGetValueResult::Deleted => {
                 return Err(errors::Errors::ValueNotFound(format!(
                     "Key not found (deleted): {}",
                     key
                 )));
             }
-            MemtableGetResult::Found(value) => {
+            MemtableGetValueResult::Found(value) => {
                 return Ok(GetResponse { value });
             }
-            MemtableGetResult::NotFound => {}
+            MemtableGetValueResult::NotFound => {}
         }
 
         // 4. Try to get from disk area
@@ -329,7 +332,7 @@ impl DBEngine {
         validate_value(&value)?;
 
         let wal_record = WALRecord {
-            record_id: 0,
+            record_id: 0.into(),
             record_type: wal::record::RecordType::Put,
             data: WALPayload {
                 table: table.clone(),
@@ -358,7 +361,7 @@ impl DBEngine {
         validate_key(&key)?;
 
         let wal_record = WALRecord {
-            record_id: 0,
+            record_id: 0.into(),
             record_type: wal::record::RecordType::Delete,
             data: WALPayload {
                 table: table.to_string(),
@@ -374,7 +377,7 @@ impl DBEngine {
 
         // 3. Memtable update
         {
-            self.memtable_manager.delete(table, key).await?;
+            self.memtable_manager.delete_value(table, key).await?;
         }
 
         Ok(())

@@ -6,35 +6,40 @@ use std::{
     },
 };
 
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 
 use crate::{
-    compaction::MemtableFlushEvent,
+    bridge::event::{MemtableFlushEvent, MemtableFlushEventSender},
     errors::{self, Errors},
+    memtable::table::{Memtable, MemtableGetValueResult},
     system::SystemInfo,
     wal::{
-        WALManager,
+        SharedWALState, WALManager,
         record::{RecordType, WALRecord},
-        state::WALGlobalState,
     },
 };
 
+pub mod table;
+
+pub type MemtableMap = Arc<RwLock<HashMap<String, Arc<RwLock<Memtable>>>>>;
+
 #[derive(Debug)]
 pub struct MemtableManager {
-    pub(crate) memtable_map: Arc<RwLock<HashMap<String, Arc<RwLock<HashMemtable>>>>>,
+    pub(crate) memtable_map: MemtableMap,
     pub(crate) memtable_current_size: Arc<AtomicU64>,
-    pub(crate) flushing_memtable_map: Arc<RwLock<HashMap<String, Arc<RwLock<HashMemtable>>>>>,
+    pub(crate) flushing_memtable_map: MemtableMap,
     pub(crate) block_write: Arc<AtomicBool>,
     #[allow(dead_code)]
     memtable_size_soft_limit: usize,
     memtable_size_hard_limit: usize,
-    pub(crate) memtable_flush_sender: tokio::sync::mpsc::Sender<MemtableFlushEvent>,
+    pub(crate) memtable_flush_sender: MemtableFlushEventSender,
 
     // borrowed from WALManager
-    pub(crate) wal_state: Arc<Mutex<WALGlobalState>>,
+    pub(crate) wal_state: SharedWALState,
 }
 
 impl MemtableManager {
+    // Create new MemtableManager
     pub fn new(system_info: &SystemInfo, wal_manager: &WALManager) -> Self {
         let total_memory = system_info.total_memory;
 
@@ -58,12 +63,14 @@ impl MemtableManager {
         }
     }
 
+    // Get current memtable size
     pub fn get_memtable_current_size(&self) -> errors::Result<u64> {
         let memtable_current_size = self.memtable_current_size.load(Ordering::Relaxed);
 
         Ok(memtable_current_size)
     }
 
+    // Load table list into memtable
     pub async fn load_table_list(&self, table_list: Vec<String>) -> errors::Result<()> {
         for table in table_list {
             self.create_table(&table).await?;
@@ -72,6 +79,7 @@ impl MemtableManager {
         Ok(())
     }
 
+    // Load WAL records into memtable
     pub async fn load_wal_records(&self, records: Vec<WALRecord>) -> errors::Result<()> {
         for record in records {
             match record.record_type {
@@ -88,7 +96,7 @@ impl MemtableManager {
                 RecordType::Delete => {
                     let payload = record.data;
 
-                    match self.delete(payload.table, payload.key).await {
+                    match self.delete_value(payload.table, payload.key).await {
                         Ok(_) => (),
                         Err(error) => {
                             match error {
@@ -114,6 +122,7 @@ impl MemtableManager {
         Ok(())
     }
 
+    // List all tables in memtables
     pub async fn list_tables(&self) -> errors::Result<Vec<String>> {
         let memtable_map = self.memtable_map.read().await;
 
@@ -122,17 +131,19 @@ impl MemtableManager {
         Ok(table_names)
     }
 
+    // Create table in memtables
     pub async fn create_table(&self, table: &str) -> errors::Result<()> {
         let mut memtable_map = self.memtable_map.write().await;
 
         if !memtable_map.contains_key(table) {
-            let memtable = Arc::new(RwLock::new(HashMemtable::new()));
+            let memtable = Arc::new(RwLock::new(Memtable::new()));
             memtable_map.insert(table.to_string(), memtable);
         }
 
         Ok(())
     }
 
+    // Delete table from memtables
     pub async fn delete_table(&self, table: &str) -> errors::Result<()> {
         // 1. Delete the table from the map
         let delete_result = {
@@ -146,7 +157,7 @@ impl MemtableManager {
             let reclaimed: u64 = deleted_table
                 .read()
                 .await
-                .table
+                .kv_map
                 .values()
                 .filter_map(|e| e.value.as_ref().map(|v| v.len() as u64))
                 .sum();
@@ -160,6 +171,7 @@ impl MemtableManager {
         Ok(())
     }
 
+    // trigger memtable flush (move active memtable to flushing memtable and send flush event)
     pub async fn trigger_flush(&self) -> errors::Result<()> {
         if self
             .block_write
@@ -173,8 +185,7 @@ impl MemtableManager {
 
                 let mut flushing_memtable = self.flushing_memtable_map.write().await;
                 for table in memtable_map.keys() {
-                    flushing_memtable
-                        .insert(table.clone(), Arc::new(RwLock::new(HashMemtable::new())));
+                    flushing_memtable.insert(table.clone(), Arc::new(RwLock::new(Memtable::new())));
                 }
 
                 std::mem::swap(&mut *memtable_map, &mut *flushing_memtable);
@@ -196,6 +207,7 @@ impl MemtableManager {
         Ok(())
     }
 
+    // Truncate table in both active and flushing memtables
     pub async fn truncate_table(&self, table_name: &str) -> errors::Result<()> {
         // 1. remove from memtable_map
         {
@@ -286,7 +298,12 @@ impl MemtableManager {
         Ok(())
     }
 
-    pub async fn get(&self, table: &str, key: &str) -> errors::Result<MemtableGetResult> {
+    // Get value from the active memtable
+    pub async fn get_value(
+        &self,
+        table: &str,
+        key: &str,
+    ) -> errors::Result<MemtableGetValueResult> {
         let memtable_map = self.memtable_map.read().await;
 
         match memtable_map.get(table) {
@@ -295,15 +312,16 @@ impl MemtableManager {
 
                 Ok(memtable_lock.get(key))
             }
-            None => Ok(MemtableGetResult::NotFound),
+            None => Ok(MemtableGetValueResult::NotFound),
         }
     }
 
-    pub async fn get_from_flushing(
+    // Get value from the flushing memtable
+    pub async fn get_value_from_flushing(
         &self,
         table: &str,
         key: &str,
-    ) -> errors::Result<MemtableGetResult> {
+    ) -> errors::Result<MemtableGetValueResult> {
         let memtable_map = self.flushing_memtable_map.read().await;
 
         match memtable_map.get(table) {
@@ -312,11 +330,12 @@ impl MemtableManager {
 
                 Ok(memtable_lock.get(key))
             }
-            None => Ok(MemtableGetResult::NotFound),
+            None => Ok(MemtableGetValueResult::NotFound),
         }
     }
 
-    pub async fn delete(&self, table: String, key: String) -> errors::Result<()> {
+    // Delete key from memtable
+    pub async fn delete_value(&self, table: String, key: String) -> errors::Result<()> {
         // 1. check if the write is blocked
         loop {
             let is_blocked = self.block_write.load(Ordering::Relaxed);
@@ -341,83 +360,6 @@ impl MemtableManager {
                 Ok(())
             }
             None => Err(Errors::TableNotFound(format!("Table not found: {}", table))),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct MemtableEntry {
-    pub value: Option<String>,
-}
-
-#[derive(Debug)]
-pub struct HashMemtable {
-    pub(crate) table: HashMap<String, MemtableEntry>,
-}
-
-impl HashMemtable {
-    pub fn clear(&mut self) {
-        self.table.clear();
-    }
-}
-
-pub const MEMTABLE_CAPACITY: usize = 100000;
-
-pub enum MemtableGetResult {
-    Found(String),
-    NotFound,
-    Deleted,
-}
-
-impl Default for HashMemtable {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl HashMemtable {
-    pub fn new() -> Self {
-        Self {
-            table: HashMap::with_capacity(MEMTABLE_CAPACITY),
-        }
-    }
-
-    // Returns previous value size if key existed
-    pub fn put(&mut self, key: String, value: String) -> Option<usize> {
-        match self.table.get_mut(&key) {
-            Some(entry) => {
-                let prev = entry.value.as_ref().map(|v| v.len()).unwrap_or(0);
-                entry.value = Some(value);
-                Some(prev)
-            }
-            None => {
-                self.table.insert(key, MemtableEntry { value: Some(value) });
-                None
-            }
-        }
-    }
-
-    pub fn get(&self, key: &str) -> MemtableGetResult {
-        match self.table.get(key) {
-            Some(entry) => match &entry.value {
-                Some(value) => MemtableGetResult::Found(value.clone()),
-                None => MemtableGetResult::Deleted,
-            },
-            None => MemtableGetResult::NotFound,
-        }
-    }
-
-    pub fn delete(&mut self, key: &str) -> Option<usize> {
-        if let Some(entry) = self.table.get_mut(key) {
-            let old_size = entry.value.as_ref().map(|v| v.len()).unwrap_or(0);
-
-            entry.value = None;
-            Some(old_size)
-        } else {
-            self.table
-                .insert(key.to_string(), MemtableEntry { value: None });
-
-            None
         }
     }
 }

@@ -1,6 +1,6 @@
-#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
-pub struct WALRecordID(u64);
+use crate::wal::record_id::WALRecordID;
 
+// WAL Payload - The actual data stored in a WAL record.
 #[derive(
     Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode,
 )]
@@ -24,11 +24,13 @@ impl WALPayload {
     }
 }
 
+// WAL Record
+// This is an individual row unit recorded in WAL.
 #[derive(
     Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, bincode::Encode, bincode::Decode,
 )]
 pub struct WALRecord {
-    pub record_id: u64,
+    pub record_id: WALRecordID,
     pub record_type: RecordType,
     pub data: WALPayload,
 }
