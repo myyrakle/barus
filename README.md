@@ -4,6 +4,30 @@
 
 - lightweight key/value storage
 
+## Get Started
+
+The simplest way to start a server is to use Docker.
+
+```bash
+sudo docker run -p 53000:53000 -p 53001:53001 myyrakle/barus:v0.0.2
+```
+
+```bash
+curl http://localhost:53000/status
+
+# create new table
+curl -X POST -H "Content-Type: application/json" -d '{}' http://localhost:53000/tables/foo
+
+# insert new value
+curl -X PUT -H "Content-Type: application/json" -d '{"key":"1111","value":"1234"}' http://localhost:53000/tables/foo/value
+
+# get value
+curl -X GET -H "Content-Type: application/json" http://localhost:53000/tables/foo/value?key=1111
+
+# delete value
+curl -X DELETE -H "Content-Type: application/json" http://localhost:53000/tables/foo/value?key=1111
+```
+
 ## Configuration
 
 - env:BARUS_HTTP_PORT = HTTP server port (default value: 53000)
