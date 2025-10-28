@@ -6,7 +6,6 @@ use std::cmp;
     Copy,
     PartialEq,
     Eq,
-    PartialOrd,
     Default,
     serde::Serialize,
     serde::Deserialize,
@@ -26,6 +25,12 @@ impl WALRecordID {
 
     pub fn add(&self, rhs: u64) -> Self {
         WALRecordID(self.0.saturating_add(rhs))
+    }
+}
+
+impl cmp::PartialOrd for WALRecordID {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
