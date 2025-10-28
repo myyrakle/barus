@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
-use tokio::sync::mpsc::Receiver;
-
 use crate::{
-    bridge::event::MemtableFlushEvent, disktable::DiskTableManager, errors,
-    memtable::MemtableManager, wal::WALManager,
+    bridge::event::{MemtableFlushEvent, MemtableFlushEventReceiver},
+    disktable::DiskTableManager,
+    errors,
+    memtable::MemtableManager,
+    wal::WALManager,
 };
 
 pub mod event;
@@ -12,7 +13,7 @@ pub mod event;
 // Mediates mutual calls between different layers.
 #[derive(Debug)]
 pub struct BridgeController {
-    memtable_flush_receiver: Receiver<MemtableFlushEvent>,
+    memtable_flush_receiver: MemtableFlushEventReceiver,
 
     disktable_manager: Arc<DiskTableManager>,
     wal_manager: Arc<WALManager>,
@@ -24,7 +25,7 @@ impl BridgeController {
         memtable_manager: &mut MemtableManager,
         disktable_manager: Arc<DiskTableManager>,
     ) -> Self {
-        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        let (sender, receiver) = MemtableFlushEvent::make_channel();
 
         memtable_manager.memtable_flush_sender = sender;
 

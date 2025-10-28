@@ -21,10 +21,12 @@ pub mod record_id;
 pub mod segment_id;
 pub mod state;
 
+pub type SharedWALState = Arc<Mutex<WALGlobalState>>;
+
 pub struct WALManager {
     codec: Box<dyn WALRecordCodec + Send + Sync>,
     base_path: PathBuf,
-    pub(crate) wal_state: Arc<Mutex<WALGlobalState>>,
+    pub(crate) wal_state: SharedWALState,
     background_fsync_duration: Option<std::time::Duration>,
     wal_write_handles: Arc<Mutex<WALSegmentFileWriteHandle>>,
     pub(crate) wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,

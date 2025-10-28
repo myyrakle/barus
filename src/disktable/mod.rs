@@ -1,13 +1,13 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 
 use crate::{
     config::{TABLES_DIRECTORY, TABLES_INDEX_DIRECTORY, TABLES_SEGMENT_DIRECTORY},
     disktable::{segment::record::TableSegmentPayload, table::TableInfo},
     errors::{self, Errors},
-    memtable::table::Memtable,
-    wal::state::{WALGlobalState, WALStateWriteHandles},
+    memtable::MemtableMap,
+    wal::{SharedWALState, state::WALStateWriteHandles},
 };
 
 pub mod index;
@@ -285,8 +285,8 @@ impl DiskTableManager {
 
     pub async fn write_memtable(
         &self,
-        memtable: Arc<RwLock<HashMap<String, Arc<RwLock<Memtable>>>>>,
-        wal_state: Arc<Mutex<WALGlobalState>>,
+        memtable: MemtableMap,
+        wal_state: SharedWALState,
         wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     ) -> errors::Result<()> {
         log::info!("Memtable Flush Started...");

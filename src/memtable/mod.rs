@@ -6,35 +6,36 @@ use std::{
     },
 };
 
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 
 use crate::{
-    bridge::event::MemtableFlushEvent,
+    bridge::event::{MemtableFlushEvent, MemtableFlushEventSender},
     errors::{self, Errors},
     memtable::table::{Memtable, MemtableGetValueResult},
     system::SystemInfo,
     wal::{
-        WALManager,
+        SharedWALState, WALManager,
         record::{RecordType, WALRecord},
-        state::WALGlobalState,
     },
 };
 
 pub mod table;
 
+pub type MemtableMap = Arc<RwLock<HashMap<String, Arc<RwLock<Memtable>>>>>;
+
 #[derive(Debug)]
 pub struct MemtableManager {
-    pub(crate) memtable_map: Arc<RwLock<HashMap<String, Arc<RwLock<Memtable>>>>>,
+    pub(crate) memtable_map: MemtableMap,
     pub(crate) memtable_current_size: Arc<AtomicU64>,
-    pub(crate) flushing_memtable_map: Arc<RwLock<HashMap<String, Arc<RwLock<Memtable>>>>>,
+    pub(crate) flushing_memtable_map: MemtableMap,
     pub(crate) block_write: Arc<AtomicBool>,
     #[allow(dead_code)]
     memtable_size_soft_limit: usize,
     memtable_size_hard_limit: usize,
-    pub(crate) memtable_flush_sender: tokio::sync::mpsc::Sender<MemtableFlushEvent>,
+    pub(crate) memtable_flush_sender: MemtableFlushEventSender,
 
     // borrowed from WALManager
-    pub(crate) wal_state: Arc<Mutex<WALGlobalState>>,
+    pub(crate) wal_state: SharedWALState,
 }
 
 impl MemtableManager {

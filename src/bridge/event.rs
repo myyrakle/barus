@@ -1,11 +1,16 @@
-use std::{collections::HashMap, sync::Arc};
-
-use tokio::sync::{Mutex, RwLock};
-
-use crate::{memtable::table::Memtable, wal::state::WALGlobalState};
+use crate::{memtable::MemtableMap, wal::SharedWALState};
 
 #[derive(Default)]
 pub struct MemtableFlushEvent {
-    pub memtable: Arc<RwLock<HashMap<String, Arc<RwLock<Memtable>>>>>,
-    pub wal_state: Arc<Mutex<WALGlobalState>>,
+    pub memtable: MemtableMap,
+    pub wal_state: SharedWALState,
 }
+
+impl MemtableFlushEvent {
+    pub fn make_channel() -> (MemtableFlushEventSender, MemtableFlushEventReceiver) {
+        tokio::sync::mpsc::channel(1)
+    }
+}
+
+pub type MemtableFlushEventSender = tokio::sync::mpsc::Sender<MemtableFlushEvent>;
+pub type MemtableFlushEventReceiver = tokio::sync::mpsc::Receiver<MemtableFlushEvent>;
