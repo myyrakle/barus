@@ -1,37 +1,24 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use tokio::sync::{Mutex, RwLock, mpsc::Receiver};
+use tokio::sync::mpsc::Receiver;
 
 use crate::{
-    disktable::DiskTableManager,
-    errors,
-    memtable::{MemtableManager, table::Memtable},
-    wal::{
-        WALManager,
-        state::{WALGlobalState, WALStateWriteHandles},
-    },
+    bridge::event::MemtableFlushEvent, disktable::DiskTableManager, errors,
+    memtable::MemtableManager, wal::WALManager,
 };
 
-#[derive(Default)]
-pub struct MemtableFlushEvent {
-    pub memtable: Arc<RwLock<HashMap<String, Arc<RwLock<Memtable>>>>>,
-    pub wal_state: Arc<Mutex<WALGlobalState>>,
-}
+pub mod event;
 
+// Mediates mutual calls between different layers.
 #[derive(Debug)]
-pub struct CompactionManager {
+pub struct BridgeController {
     memtable_flush_receiver: Receiver<MemtableFlushEvent>,
 
-    // borrowed from disktable manager
     disktable_manager: Arc<DiskTableManager>,
-
-    // borrowed from wal manager
-    wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
-
     wal_manager: Arc<WALManager>,
 }
 
-impl CompactionManager {
+impl BridgeController {
     pub fn new(
         wal_manager: Arc<WALManager>,
         memtable_manager: &mut MemtableManager,
@@ -41,16 +28,17 @@ impl CompactionManager {
 
         memtable_manager.memtable_flush_sender = sender;
 
-        CompactionManager {
-            wal_state_write_handles: wal_manager.wal_state_write_handles.clone(),
+        BridgeController {
             memtable_flush_receiver: receiver,
             disktable_manager: disktable_manager.clone(),
             wal_manager,
         }
     }
 
+    // Start background tasks for the bridge controller.
     pub fn start_background(&mut self) -> errors::Result<()> {
         self.start_memtable_flush_task();
+
         Ok(())
     }
 
@@ -62,7 +50,7 @@ impl CompactionManager {
 
         let disk_manager = self.disktable_manager.clone();
         let wal_manager = self.wal_manager.clone();
-        let wal_state_write_handles = self.wal_state_write_handles.clone();
+        let wal_state_write_handles = self.wal_manager.wal_state_write_handles.clone();
 
         tokio::spawn(async move {
             while let Some(event) = memtable_flush_receiver.recv().await {

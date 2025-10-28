@@ -9,7 +9,7 @@ use std::{
 use tokio::sync::{Mutex, RwLock};
 
 use crate::{
-    compaction::MemtableFlushEvent,
+    bridge::event::MemtableFlushEvent,
     errors::{self, Errors},
     memtable::table::{Memtable, MemtableGetValueResult},
     system::SystemInfo,

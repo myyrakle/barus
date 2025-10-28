@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::{
-    compaction::CompactionManager,
+    bridge::BridgeController,
     disktable::{DiskTableManager, DisktableGetResult, table::TableInfo},
     errors,
     memtable::{MemtableManager, table::MemtableGetValueResult},
@@ -27,7 +27,7 @@ pub struct DBEngine {
     wal_manager: Arc<WALManager>,
     memtable_manager: Arc<MemtableManager>,
     disktable_manager: Arc<DiskTableManager>,
-    compaction_manager: Arc<Mutex<CompactionManager>>,
+    compaction_manager: Arc<Mutex<BridgeController>>,
 }
 
 pub struct GetResponse {
@@ -96,7 +96,7 @@ impl DBEngine {
 
         // 6. compaction manager load
         log::info!("Initializing compaction manager...");
-        let compaction_manager = CompactionManager::new(
+        let compaction_manager = BridgeController::new(
             wal_manager.clone(),
             &mut memtable_manager,
             disktable_manager.clone(),
