@@ -6,7 +6,7 @@ use crate::{
     compaction::CompactionManager,
     disktable::{DiskTableManager, DisktableGetResult, table::TableInfo},
     errors,
-    memtable::{MemtableGetResult, MemtableManager},
+    memtable::{MemtableManager, table::MemtableGetValueResult},
     os::handle_shutdown,
     system::{SystemInfo, get_system_info},
     validate::{validate_key, validate_table_name, validate_value},
@@ -279,16 +279,16 @@ impl DBEngine {
         let memtable_result = self.memtable_manager.get_value(table, key).await?;
 
         match memtable_result {
-            MemtableGetResult::Deleted => {
+            MemtableGetValueResult::Deleted => {
                 return Err(errors::Errors::ValueNotFound(format!(
                     "Key not found (deleted): {}",
                     key
                 )));
             }
-            MemtableGetResult::Found(value) => {
+            MemtableGetValueResult::Found(value) => {
                 return Ok(GetResponse { value });
             }
-            MemtableGetResult::NotFound => {}
+            MemtableGetValueResult::NotFound => {}
         }
 
         let memtable_result = self
@@ -298,16 +298,16 @@ impl DBEngine {
 
         // 3. Try to get from flushing Memtable
         match memtable_result {
-            MemtableGetResult::Deleted => {
+            MemtableGetValueResult::Deleted => {
                 return Err(errors::Errors::ValueNotFound(format!(
                     "Key not found (deleted): {}",
                     key
                 )));
             }
-            MemtableGetResult::Found(value) => {
+            MemtableGetValueResult::Found(value) => {
                 return Ok(GetResponse { value });
             }
-            MemtableGetResult::NotFound => {}
+            MemtableGetValueResult::NotFound => {}
         }
 
         // 4. Try to get from disk area

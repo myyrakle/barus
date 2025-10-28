@@ -9,7 +9,7 @@ use crate::{
         table::TableInfo,
     },
     errors::{self, Errors},
-    memtable::HashMemtable,
+    memtable::table::Memtable,
     wal::state::{WALGlobalState, WALStateWriteHandles},
 };
 
@@ -288,7 +288,7 @@ impl DiskTableManager {
 
     pub async fn write_memtable(
         &self,
-        memtable: Arc<RwLock<HashMap<String, Arc<RwLock<HashMemtable>>>>>,
+        memtable: Arc<RwLock<HashMap<String, Arc<RwLock<Memtable>>>>>,
         wal_state: Arc<Mutex<WALGlobalState>>,
         wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
     ) -> errors::Result<()> {
@@ -300,13 +300,13 @@ impl DiskTableManager {
         // 1. write memtable to disk
         for (table_name, memtable_lock) in memtable.iter() {
             let memtable = memtable_lock.read().await;
-            let entry_count = memtable.table.len();
+            let entry_count = memtable.kv_map.len();
 
             log::trace!("Flushing table '{}': {} entries", table_name, entry_count);
             let mut processed = 0;
             let report_interval = (entry_count / 10).max(1000); // 10% 또는 최소 1000개마다 리포트
 
-            for (key, memtable_entry) in memtable.table.iter() {
+            for (key, memtable_entry) in memtable.kv_map.iter() {
                 match &memtable_entry.value {
                     // Insert/Update Process
                     Some(value) => {
@@ -341,7 +341,7 @@ impl DiskTableManager {
 
             // 1.3. destroy memtable. now, we can find data in disk
             let mut memtable = memtable_lock.write().await;
-            memtable.table.clear();
+            memtable.kv_map.clear();
         }
 
         // 2. move WAL checkpoint

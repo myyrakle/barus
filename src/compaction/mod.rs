@@ -5,7 +5,7 @@ use tokio::sync::{Mutex, RwLock, mpsc::Receiver};
 use crate::{
     disktable::DiskTableManager,
     errors,
-    memtable::{HashMemtable, MemtableManager},
+    memtable::{MemtableManager, table::Memtable},
     wal::{
         WALManager,
         state::{WALGlobalState, WALStateWriteHandles},
@@ -14,7 +14,7 @@ use crate::{
 
 #[derive(Default)]
 pub struct MemtableFlushEvent {
-    pub memtable: Arc<RwLock<HashMap<String, Arc<RwLock<HashMemtable>>>>>,
+    pub memtable: Arc<RwLock<HashMap<String, Arc<RwLock<Memtable>>>>>,
     pub wal_state: Arc<Mutex<WALGlobalState>>,
 }
 

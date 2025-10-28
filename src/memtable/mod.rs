@@ -11,6 +11,7 @@ use tokio::sync::{Mutex, RwLock};
 use crate::{
     compaction::MemtableFlushEvent,
     errors::{self, Errors},
+    memtable::table::{Memtable, MemtableGetValueResult},
     system::SystemInfo,
     wal::{
         WALManager,
@@ -19,11 +20,13 @@ use crate::{
     },
 };
 
+pub mod table;
+
 #[derive(Debug)]
 pub struct MemtableManager {
-    pub(crate) memtable_map: Arc<RwLock<HashMap<String, Arc<RwLock<HashMemtable>>>>>,
+    pub(crate) memtable_map: Arc<RwLock<HashMap<String, Arc<RwLock<Memtable>>>>>,
     pub(crate) memtable_current_size: Arc<AtomicU64>,
-    pub(crate) flushing_memtable_map: Arc<RwLock<HashMap<String, Arc<RwLock<HashMemtable>>>>>,
+    pub(crate) flushing_memtable_map: Arc<RwLock<HashMap<String, Arc<RwLock<Memtable>>>>>,
     pub(crate) block_write: Arc<AtomicBool>,
     #[allow(dead_code)]
     memtable_size_soft_limit: usize,
@@ -132,7 +135,7 @@ impl MemtableManager {
         let mut memtable_map = self.memtable_map.write().await;
 
         if !memtable_map.contains_key(table) {
-            let memtable = Arc::new(RwLock::new(HashMemtable::new()));
+            let memtable = Arc::new(RwLock::new(Memtable::new()));
             memtable_map.insert(table.to_string(), memtable);
         }
 
@@ -153,7 +156,7 @@ impl MemtableManager {
             let reclaimed: u64 = deleted_table
                 .read()
                 .await
-                .table
+                .kv_map
                 .values()
                 .filter_map(|e| e.value.as_ref().map(|v| v.len() as u64))
                 .sum();
@@ -181,8 +184,7 @@ impl MemtableManager {
 
                 let mut flushing_memtable = self.flushing_memtable_map.write().await;
                 for table in memtable_map.keys() {
-                    flushing_memtable
-                        .insert(table.clone(), Arc::new(RwLock::new(HashMemtable::new())));
+                    flushing_memtable.insert(table.clone(), Arc::new(RwLock::new(Memtable::new())));
                 }
 
                 std::mem::swap(&mut *memtable_map, &mut *flushing_memtable);
@@ -296,7 +298,11 @@ impl MemtableManager {
     }
 
     // Get value from the active memtable
-    pub async fn get_value(&self, table: &str, key: &str) -> errors::Result<MemtableGetResult> {
+    pub async fn get_value(
+        &self,
+        table: &str,
+        key: &str,
+    ) -> errors::Result<MemtableGetValueResult> {
         let memtable_map = self.memtable_map.read().await;
 
         match memtable_map.get(table) {
@@ -305,7 +311,7 @@ impl MemtableManager {
 
                 Ok(memtable_lock.get(key))
             }
-            None => Ok(MemtableGetResult::NotFound),
+            None => Ok(MemtableGetValueResult::NotFound),
         }
     }
 
@@ -314,7 +320,7 @@ impl MemtableManager {
         &self,
         table: &str,
         key: &str,
-    ) -> errors::Result<MemtableGetResult> {
+    ) -> errors::Result<MemtableGetValueResult> {
         let memtable_map = self.flushing_memtable_map.read().await;
 
         match memtable_map.get(table) {
@@ -323,7 +329,7 @@ impl MemtableManager {
 
                 Ok(memtable_lock.get(key))
             }
-            None => Ok(MemtableGetResult::NotFound),
+            None => Ok(MemtableGetValueResult::NotFound),
         }
     }
 
@@ -353,83 +359,6 @@ impl MemtableManager {
                 Ok(())
             }
             None => Err(Errors::TableNotFound(format!("Table not found: {}", table))),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct MemtableEntry {
-    pub value: Option<String>,
-}
-
-#[derive(Debug)]
-pub struct HashMemtable {
-    pub(crate) table: HashMap<String, MemtableEntry>,
-}
-
-impl HashMemtable {
-    pub fn clear(&mut self) {
-        self.table.clear();
-    }
-}
-
-pub const MEMTABLE_CAPACITY: usize = 100000;
-
-pub enum MemtableGetResult {
-    Found(String),
-    NotFound,
-    Deleted,
-}
-
-impl Default for HashMemtable {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl HashMemtable {
-    pub fn new() -> Self {
-        Self {
-            table: HashMap::with_capacity(MEMTABLE_CAPACITY),
-        }
-    }
-
-    // Returns previous value size if key existed
-    pub fn put(&mut self, key: String, value: String) -> Option<usize> {
-        match self.table.get_mut(&key) {
-            Some(entry) => {
-                let prev = entry.value.as_ref().map(|v| v.len()).unwrap_or(0);
-                entry.value = Some(value);
-                Some(prev)
-            }
-            None => {
-                self.table.insert(key, MemtableEntry { value: Some(value) });
-                None
-            }
-        }
-    }
-
-    pub fn get(&self, key: &str) -> MemtableGetResult {
-        match self.table.get(key) {
-            Some(entry) => match &entry.value {
-                Some(value) => MemtableGetResult::Found(value.clone()),
-                None => MemtableGetResult::Deleted,
-            },
-            None => MemtableGetResult::NotFound,
-        }
-    }
-
-    pub fn delete(&mut self, key: &str) -> Option<usize> {
-        if let Some(entry) = self.table.get_mut(key) {
-            let old_size = entry.value.as_ref().map(|v| v.len()).unwrap_or(0);
-
-            entry.value = None;
-            Some(old_size)
-        } else {
-            self.table
-                .insert(key.to_string(), MemtableEntry { value: None });
-
-            None
         }
     }
 }
