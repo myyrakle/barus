@@ -35,6 +35,7 @@ pub struct MemtableManager {
 }
 
 impl MemtableManager {
+    // Create new MemtableManager
     pub fn new(system_info: &SystemInfo, wal_manager: &WALManager) -> Self {
         let total_memory = system_info.total_memory;
 
@@ -58,12 +59,14 @@ impl MemtableManager {
         }
     }
 
+    // Get current memtable size
     pub fn get_memtable_current_size(&self) -> errors::Result<u64> {
         let memtable_current_size = self.memtable_current_size.load(Ordering::Relaxed);
 
         Ok(memtable_current_size)
     }
 
+    // Load table list into memtable
     pub async fn load_table_list(&self, table_list: Vec<String>) -> errors::Result<()> {
         for table in table_list {
             self.create_table(&table).await?;
@@ -72,6 +75,7 @@ impl MemtableManager {
         Ok(())
     }
 
+    // Load WAL records into memtable
     pub async fn load_wal_records(&self, records: Vec<WALRecord>) -> errors::Result<()> {
         for record in records {
             match record.record_type {
@@ -88,7 +92,7 @@ impl MemtableManager {
                 RecordType::Delete => {
                     let payload = record.data;
 
-                    match self.delete(payload.table, payload.key).await {
+                    match self.delete_value(payload.table, payload.key).await {
                         Ok(_) => (),
                         Err(error) => {
                             match error {
@@ -114,6 +118,7 @@ impl MemtableManager {
         Ok(())
     }
 
+    // List all tables in memtables
     pub async fn list_tables(&self) -> errors::Result<Vec<String>> {
         let memtable_map = self.memtable_map.read().await;
 
@@ -122,6 +127,7 @@ impl MemtableManager {
         Ok(table_names)
     }
 
+    // Create table in memtables
     pub async fn create_table(&self, table: &str) -> errors::Result<()> {
         let mut memtable_map = self.memtable_map.write().await;
 
@@ -133,6 +139,7 @@ impl MemtableManager {
         Ok(())
     }
 
+    // Delete table from memtables
     pub async fn delete_table(&self, table: &str) -> errors::Result<()> {
         // 1. Delete the table from the map
         let delete_result = {
@@ -160,6 +167,7 @@ impl MemtableManager {
         Ok(())
     }
 
+    // trigger memtable flush (move active memtable to flushing memtable and send flush event)
     pub async fn trigger_flush(&self) -> errors::Result<()> {
         if self
             .block_write
@@ -196,6 +204,7 @@ impl MemtableManager {
         Ok(())
     }
 
+    // Truncate table in both active and flushing memtables
     pub async fn truncate_table(&self, table_name: &str) -> errors::Result<()> {
         // 1. remove from memtable_map
         {
@@ -286,7 +295,8 @@ impl MemtableManager {
         Ok(())
     }
 
-    pub async fn get(&self, table: &str, key: &str) -> errors::Result<MemtableGetResult> {
+    // Get value from the active memtable
+    pub async fn get_value(&self, table: &str, key: &str) -> errors::Result<MemtableGetResult> {
         let memtable_map = self.memtable_map.read().await;
 
         match memtable_map.get(table) {
@@ -299,7 +309,8 @@ impl MemtableManager {
         }
     }
 
-    pub async fn get_from_flushing(
+    // Get value from the flushing memtable
+    pub async fn get_value_from_flushing(
         &self,
         table: &str,
         key: &str,
@@ -316,7 +327,8 @@ impl MemtableManager {
         }
     }
 
-    pub async fn delete(&self, table: String, key: String) -> errors::Result<()> {
+    // Delete key from memtable
+    pub async fn delete_value(&self, table: String, key: String) -> errors::Result<()> {
         // 1. check if the write is blocked
         loop {
             let is_blocked = self.block_write.load(Ordering::Relaxed);

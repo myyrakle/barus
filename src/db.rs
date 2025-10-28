@@ -276,7 +276,7 @@ impl DBEngine {
         validate_key(key)?;
 
         // 2. Try to get from Memtable
-        let memtable_result = self.memtable_manager.get(table, key).await?;
+        let memtable_result = self.memtable_manager.get_value(table, key).await?;
 
         match memtable_result {
             MemtableGetResult::Deleted => {
@@ -291,7 +291,10 @@ impl DBEngine {
             MemtableGetResult::NotFound => {}
         }
 
-        let memtable_result = self.memtable_manager.get_from_flushing(table, key).await?;
+        let memtable_result = self
+            .memtable_manager
+            .get_value_from_flushing(table, key)
+            .await?;
 
         // 3. Try to get from flushing Memtable
         match memtable_result {
@@ -374,7 +377,7 @@ impl DBEngine {
 
         // 3. Memtable update
         {
-            self.memtable_manager.delete(table, key).await?;
+            self.memtable_manager.delete_value(table, key).await?;
         }
 
         Ok(())
