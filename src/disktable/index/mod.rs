@@ -2,7 +2,9 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use tokio::sync::Mutex;
 
-use crate::{config::TABLES_DIRECTORY, disktable::segment::TableRecordPosition, errors::Errors};
+use crate::{
+    config::TABLES_DIRECTORY, disktable::segment::position::TableRecordPosition, errors::Errors,
+};
 
 pub mod btree;
 

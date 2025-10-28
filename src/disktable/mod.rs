@@ -4,10 +4,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::{
     config::{TABLES_DIRECTORY, TABLES_INDEX_DIRECTORY, TABLES_SEGMENT_DIRECTORY},
-    disktable::{
-        segment::{RecordStateFlags, TableRecordPayload},
-        table::TableInfo,
-    },
+    disktable::{segment::record::TableSegmentPayload, table::TableInfo},
     errors::{self, Errors},
     memtable::table::Memtable,
     wal::state::{WALGlobalState, WALStateWriteHandles},
@@ -242,7 +239,7 @@ impl DiskTableManager {
             .find_record(table_name, position)
             .await?;
 
-        if flag == RecordStateFlags::Deleted {
+        if flag.is_deleted() {
             return Ok(DisktableGetResult::Deleted);
         }
 
@@ -260,7 +257,7 @@ impl DiskTableManager {
             .segment_manager
             .append_record(
                 table_name,
-                TableRecordPayload {
+                TableSegmentPayload {
                     key: key.to_owned(),
                     value: value.to_owned(),
                 },
