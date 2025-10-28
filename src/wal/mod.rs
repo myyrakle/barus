@@ -7,26 +7,26 @@ use crate::{
     os::file_resize_and_set_zero,
     wal::{
         encode::WALRecordCodec,
+        mmap::WALSegmentFileWriteHandle,
         record::{RecordType, WALPayload, WALRecord},
-        segment::{WALSegmentID, WALSegmentWriteHandle},
+        segment_id::WALSegmentID,
         state::{WALGlobalState, WALStateWriteHandles},
     },
 };
 
 pub mod encode;
+pub mod mmap;
 pub mod record;
-pub mod segment;
+pub mod record_id;
+pub mod segment_id;
 pub mod state;
-
-#[cfg(not(target_os = "linux"))]
-pub static WAL_ZERO_CHUNK: [u8; WAL_SEGMENT_SIZE] = [0u8; WAL_SEGMENT_SIZE];
 
 pub struct WALManager {
     codec: Box<dyn WALRecordCodec + Send + Sync>,
     base_path: PathBuf,
     pub(crate) wal_state: Arc<Mutex<WALGlobalState>>,
     background_fsync_duration: Option<std::time::Duration>,
-    wal_write_handles: Arc<Mutex<WALSegmentWriteHandle>>,
+    wal_write_handles: Arc<Mutex<WALSegmentFileWriteHandle>>,
     pub(crate) wal_state_write_handles: Arc<Mutex<WALStateWriteHandles>>,
 }
 
@@ -40,7 +40,7 @@ impl WALManager {
             codec,
             base_path,
             wal_state: Arc::new(Mutex::new(Default::default())),
-            wal_write_handles: Arc::new(Mutex::new(WALSegmentWriteHandle::empty())),
+            wal_write_handles: Arc::new(Mutex::new(WALSegmentFileWriteHandle::empty())),
             wal_state_write_handles: Arc::new(Mutex::new(WALStateWriteHandles {
                 state_file: None,
             })),
@@ -136,7 +136,7 @@ impl WALManager {
                     ))
                 })?;
 
-            *manager.wal_write_handles.lock().await = WALSegmentWriteHandle::new(file).await?;
+            *manager.wal_write_handles.lock().await = WALSegmentFileWriteHandle::new(file).await?;
         }
 
         Ok(manager)
@@ -158,7 +158,7 @@ impl WALManager {
             state.last_segment_file_offset = offset;
 
             if let Some(last_record) = records.last() {
-                state.last_record_id = last_record.record_id;
+                state.last_record_id = last_record.record_id.to_owned();
             }
 
             let mut state_handles = self.wal_state_write_handles.lock().await;
@@ -293,7 +293,7 @@ impl WALManager {
         // 3. Serialize the record and write (zero copy)
         let payload_start_offset = wal_state.last_segment_file_offset + WAL_RECORD_HEADER_SIZE;
 
-        let new_record_id = wal_state.last_record_id + 1;
+        let new_record_id = wal_state.last_record_id.add(1);
         record.record_id = new_record_id;
 
         let payload_size = self
@@ -321,7 +321,7 @@ impl WALManager {
 
     pub async fn truncate_table(&self, table_name: &str) -> errors::Result<()> {
         let wal_record = WALRecord {
-            record_id: 0,
+            record_id: 0.into(),
             record_type: RecordType::Truncate,
             data: WALPayload {
                 table: table_name.to_string(),
@@ -416,7 +416,7 @@ impl WALManager {
         Ok(segment_id_str)
     }
 
-    async fn new_segment_file(&self) -> errors::Result<WALSegmentWriteHandle> {
+    async fn new_segment_file(&self) -> errors::Result<WALSegmentFileWriteHandle> {
         let new_segment_id = {
             let mut state = self.wal_state.lock().await;
             state.last_segment_id.increment();
@@ -445,7 +445,7 @@ impl WALManager {
 
         file_resize_and_set_zero(&mut file, WAL_SEGMENT_SIZE).await?;
 
-        WALSegmentWriteHandle::new(file).await
+        WALSegmentFileWriteHandle::new(file).await
     }
 }
 

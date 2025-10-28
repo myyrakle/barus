@@ -14,7 +14,7 @@ use crate::{
         self, WALManager,
         encode::WALRecordBincodeCodec,
         record::{WALPayload, WALRecord},
-        segment::WALSegmentID,
+        segment_id::WALSegmentID,
     },
 };
 
@@ -332,7 +332,7 @@ impl DBEngine {
         validate_value(&value)?;
 
         let wal_record = WALRecord {
-            record_id: 0,
+            record_id: 0.into(),
             record_type: wal::record::RecordType::Put,
             data: WALPayload {
                 table: table.clone(),
@@ -361,7 +361,7 @@ impl DBEngine {
         validate_key(&key)?;
 
         let wal_record = WALRecord {
-            record_id: 0,
+            record_id: 0.into(),
             record_type: wal::record::RecordType::Delete,
             data: WALPayload {
                 table: table.to_string(),

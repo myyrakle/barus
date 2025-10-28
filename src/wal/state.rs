@@ -4,13 +4,13 @@ use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
 use crate::{
     errors,
-    wal::{WAL_STATE_PATH, segment::WALSegmentID},
+    wal::{WAL_STATE_PATH, record_id::WALRecordID, segment_id::WALSegmentID},
 };
 
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct WALGlobalState {
-    pub last_record_id: u64,
-    pub last_checkpoint_record_id: u64,
+    pub last_record_id: WALRecordID,
+    pub last_checkpoint_record_id: WALRecordID,
     pub last_segment_id: WALSegmentID,
     pub last_checkpoint_segment_id: WALSegmentID,
     pub last_segment_file_offset: usize,
