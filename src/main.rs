@@ -28,6 +28,14 @@ fn setup_logging() {
     env_logger::init();
 }
 
+fn setup_backtrace() {
+    unsafe {
+        if std::env::var("RUST_BACKTRACE").is_err() {
+            std::env::set_var("RUST_BACKTRACE", "1");
+        }
+    }
+}
+
 fn get_data_dir() -> PathBuf {
     let path = std::env::var("BARUS_DATA_DIR").unwrap_or_else(|_| "data".to_string());
     PathBuf::from(path)
@@ -36,6 +44,7 @@ fn get_data_dir() -> PathBuf {
 #[tokio::main]
 async fn main() -> errors::Result<()> {
     setup_logging();
+    setup_backtrace();
 
     log::info!("Initializing DB Engine...");
 
