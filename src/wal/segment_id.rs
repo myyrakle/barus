@@ -53,13 +53,15 @@ impl TryFrom<&str> for WALSegmentID {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         if value.len() != 16 {
-            return Err(errors::Errors::WALSegmentIDParseError(
-                "Invalid segment ID length".to_string(),
-            ));
+            return Err(
+                errors::Errors::new(errors::ErrorCodes::WALSegmentIDParseError)
+                    .with_message("Invalid segment ID length".to_string()),
+            );
         }
 
         let id = u64::from_str_radix(value, 16).map_err(|e| {
-            errors::Errors::WALSegmentIDParseError(format!("Failed to parse segment ID: {}", e))
+            errors::Errors::new(errors::ErrorCodes::WALSegmentIDParseError)
+                .with_message(format!("Failed to parse segment ID: {}", e))
         })?;
 
         Ok(WALSegmentID(id))

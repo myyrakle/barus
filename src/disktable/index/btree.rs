@@ -10,7 +10,7 @@ use tokio::{
 use crate::{
     config::{TABLES_DIRECTORY, TABLES_INDEX_DIRECTORY},
     disktable::segment::position::TableRecordPosition,
-    errors::Errors,
+    errors::{self, ErrorCodes},
 };
 
 /// 인덱스 세그먼트 파일의 최대 크기 (1GB)
@@ -151,7 +151,7 @@ impl BTreeIndex {
     }
 
     /// 세그먼트 파일 가져오기 (매번 새로 열기 - 캐시 제거)
-    async fn get_segment_file(&self, segment_number: u32) -> Result<Arc<Mutex<File>>, Errors> {
+    async fn get_segment_file(&self, segment_number: u32) -> errors::Result<Arc<Mutex<File>>> {
         let path = self.index_file_path(segment_number);
 
         // 1. 캐시에 파일 핸들이 이미 있으면 반환
@@ -169,7 +169,7 @@ impl BTreeIndex {
                 .open(&path)
                 .await
                 .map_err(|e| {
-                    Errors::FileOpenError(format!(
+                    errors::Errors::new(ErrorCodes::FileOpenError).with_message(format!(
                         "Failed to open segment {} file: {}",
                         segment_number, e
                     ))
@@ -182,7 +182,7 @@ impl BTreeIndex {
                 .open(&path)
                 .await
                 .map_err(|e| {
-                    Errors::FileOpenError(format!(
+                    errors::Errors::new(ErrorCodes::FileOpenError).with_message(format!(
                         "Failed to create segment {} file: {}",
                         segment_number, e
                     ))
@@ -207,19 +207,21 @@ impl BTreeIndex {
     }
 
     /// 인덱스 초기화 (파일 열기 또는 생성)
-    pub async fn initialize(&self) -> Result<(), Errors> {
+    pub async fn initialize(&self) -> errors::Result<()> {
         let metadata_path = self.metadata_file_path();
 
         // 메타데이터 파일 읽기 또는 생성
         if metadata_path.exists() {
             let metadata_bytes = tokio::fs::read(&metadata_path).await.map_err(|e| {
-                Errors::FileReadError(format!("Failed to read metadata file: {}", e))
+                errors::Errors::new(ErrorCodes::FileReadError)
+                    .with_message(format!("Failed to read metadata file: {}", e))
             })?;
 
             let metadata: BTreeMetadata =
                 bincode::decode_from_slice(&metadata_bytes, bincode::config::standard())
                     .map_err(|e| {
-                        Errors::FileReadError(format!("Failed to decode metadata: {}", e))
+                        errors::Errors::new(ErrorCodes::FileReadError)
+                            .with_message(format!("Failed to decode metadata: {}", e))
                     })?
                     .0;
 
@@ -376,7 +378,7 @@ impl BTreeIndex {
     }
 
     /// 손상된 인덱스 파일 정리
-    async fn cleanup_index_files(&self) -> Result<(), Errors> {
+    async fn cleanup_index_files(&self) -> errors::Result<()> {
         let index_dir = self
             .base_path
             .join(TABLES_DIRECTORY)
@@ -388,21 +390,21 @@ impl BTreeIndex {
         }
 
         // 인덱스 디렉토리 내 모든 index.btree* 파일 삭제
-        let mut entries = tokio::fs::read_dir(&index_dir)
-            .await
-            .map_err(|e| Errors::FileReadError(format!("Failed to read index directory: {}", e)))?;
+        let mut entries = tokio::fs::read_dir(&index_dir).await.map_err(|e| {
+            errors::Errors::new(ErrorCodes::FileReadError)
+                .with_message(format!("Failed to read index directory: {}", e))
+        })?;
 
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|e| Errors::FileReadError(format!("Failed to read directory entry: {}", e)))?
-        {
+        while let Some(entry) = entries.next_entry().await.map_err(|e| {
+            errors::Errors::new(ErrorCodes::FileReadError)
+                .with_message(format!("Failed to read directory entry: {}", e))
+        })? {
             let path = entry.path();
             if let Some(file_name) = path.file_name().and_then(|n| n.to_str())
                 && file_name.starts_with("index.btree")
             {
                 tokio::fs::remove_file(&path).await.map_err(|e| {
-                    Errors::FileWriteError(format!(
+                    errors::Errors::new(ErrorCodes::FileWriteError).with_message(format!(
                         "Failed to remove file {}: {}",
                         path.display(),
                         e
@@ -415,14 +417,16 @@ impl BTreeIndex {
     }
 
     /// 메타데이터 저장
-    async fn save_metadata(&self) -> Result<(), Errors> {
+    async fn save_metadata(&self) -> errors::Result<()> {
         let metadata_path = self.metadata_file_path();
 
         // 락을 짧게 잡고 인코딩만 수행
         let encoded = {
             let meta_guard = self.metadata.lock().await;
-            bincode::encode_to_vec(&*meta_guard, bincode::config::standard())
-                .map_err(|e| Errors::FileWriteError(format!("Failed to encode metadata: {}", e)))?
+            bincode::encode_to_vec(&*meta_guard, bincode::config::standard()).map_err(|e| {
+                errors::Errors::new(ErrorCodes::FileWriteError)
+                    .with_message(format!("Failed to encode metadata: {}", e))
+            })?
         }; // 락 해제
 
         // 디렉터리 생성 보장
@@ -430,20 +434,24 @@ impl BTreeIndex {
             && !parent.exists()
         {
             tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                Errors::FileWriteError(format!("Failed to create index directory: {}", e))
+                errors::Errors::new(ErrorCodes::FileWriteError)
+                    .with_message(format!("Failed to create index directory: {}", e))
             })?;
         }
 
         // 락 없이 파일 쓰기
         tokio::fs::write(&metadata_path, &encoded)
             .await
-            .map_err(|e| Errors::FileWriteError(format!("Failed to write metadata file: {}", e)))?;
+            .map_err(|e| {
+                errors::Errors::new(ErrorCodes::FileWriteError)
+                    .with_message(format!("Failed to write metadata file: {}", e))
+            })?;
 
         Ok(())
     }
 
     /// 노드 읽기
-    async fn read_node(&self, position: BTreeNodePosition) -> Result<BTreeNode, Errors> {
+    async fn read_node(&self, position: BTreeNodePosition) -> errors::Result<BTreeNode> {
         // 논리적 오프셋을 세그먼트 정보로 변환
         let (segment_number, segment_offset) = self.offset_to_segment(position.offset);
 
@@ -455,7 +463,10 @@ impl BTreeIndex {
         let file_size = file
             .metadata()
             .await
-            .map_err(|e| Errors::FileReadError(format!("Failed to get file metadata: {}", e)))?
+            .map_err(|e| {
+                errors::Errors::new(ErrorCodes::FileReadError)
+                    .with_message(format!("Failed to get file metadata: {}", e))
+            })?
             .len();
 
         if segment_offset + 4 > file_size {
@@ -467,7 +478,7 @@ impl BTreeIndex {
                 segment_number,
                 position.offset
             );
-            return Err(Errors::FileReadError(format!(
+            return Err(errors::Errors::new(ErrorCodes::FileReadError).with_message(format!(
                 "Attempt to read beyond file size: offset {} + 4 > file size {}. Index may be corrupted.",
                 segment_offset, file_size
             )));
@@ -476,7 +487,8 @@ impl BTreeIndex {
         file.seek(SeekFrom::Start(segment_offset))
             .await
             .map_err(|e| {
-                Errors::FileSeekError(format!("Failed to seek to node position: {}", e))
+                errors::Errors::new(ErrorCodes::FileSeekError)
+                    .with_message(format!("Failed to seek to node position: {}", e))
             })?;
 
         // 노드 크기 읽기
@@ -487,7 +499,7 @@ impl BTreeIndex {
                 segment_offset,
                 e
             );
-            Errors::FileReadError(format!(
+            errors::Errors::new(ErrorCodes::FileReadError).with_message(format!(
                 "Failed to read node size at offset {}: {}",
                 segment_offset, e
             ))
@@ -502,7 +514,7 @@ impl BTreeIndex {
                 segment_number,
                 position.offset
             );
-            return Err(Errors::FileReadError(format!(
+            return Err(errors::Errors::new(ErrorCodes::FileReadError).with_message(format!(
                 "Invalid node size 0 at offset {}. Index may be corrupted or reading uninitialized space.",
                 segment_offset
             )));
@@ -519,10 +531,12 @@ impl BTreeIndex {
                 segment_number,
                 position.offset
             );
-            return Err(Errors::FileReadError(format!(
-                "Node size {} exceeds maximum block size {}. Index may be corrupted.",
-                node_size, max_data_size
-            )));
+            return Err(
+                errors::Errors::new(ErrorCodes::FileReadError).with_message(format!(
+                    "Node size {} exceeds maximum block size {}. Index may be corrupted.",
+                    node_size, max_data_size
+                )),
+            );
         }
 
         if segment_offset + 4 + node_size as u64 > file_size {
@@ -535,7 +549,7 @@ impl BTreeIndex {
                 segment_number,
                 position.offset
             );
-            return Err(Errors::FileReadError(format!(
+            return Err(errors::Errors::new(ErrorCodes::FileReadError).with_message(format!(
                 "Node size {} exceeds file bounds: offset {} + 4 + {} > file size {}. Index may be corrupted.",
                 node_size, segment_offset, node_size, file_size
             )));
@@ -551,7 +565,7 @@ impl BTreeIndex {
                 segment_offset,
                 e
             );
-            Errors::FileReadError(format!(
+            errors::Errors::new(ErrorCodes::FileReadError).with_message(format!(
                 "Failed to read node data of size {} at offset {}: {}",
                 node_size, segment_offset, e
             ))
@@ -565,7 +579,8 @@ impl BTreeIndex {
                     self.table_name, position.offset, e, buffer.len(),
                     &buffer[..buffer.len().min(32)]
                 );
-                Errors::FileReadError(format!("Failed to decode node: {}", e))
+                errors::Errors::new(ErrorCodes::FileReadError)
+                    .with_message(format!("Failed to decode node: {}", e))
             })?
             .0;
 
@@ -573,10 +588,12 @@ impl BTreeIndex {
     }
 
     /// 노드 쓰기 (고정 크기 블록 사용)
-    async fn write_node(&self, node: &BTreeNode) -> Result<BTreeNodePosition, Errors> {
+    async fn write_node(&self, node: &BTreeNode) -> errors::Result<BTreeNodePosition> {
         // 1. 노드 인코딩 (락 없이)
-        let encoded = bincode::encode_to_vec(node, bincode::config::standard())
-            .map_err(|e| Errors::FileWriteError(format!("Failed to encode node: {}", e)))?;
+        let encoded = bincode::encode_to_vec(node, bincode::config::standard()).map_err(|e| {
+            errors::Errors::new(ErrorCodes::FileWriteError)
+                .with_message(format!("Failed to encode node: {}", e))
+        })?;
 
         // 고정 크기 블록 검증
         let max_data_size = NODE_SIZE - 4;
@@ -589,11 +606,13 @@ impl BTreeIndex {
                 node.node_type,
                 node.leaf_entries.len() + node.internal_entries.len()
             );
-            return Err(Errors::FileWriteError(format!(
-                "Node size {} exceeds maximum block size {}",
-                encoded.len(),
-                max_data_size
-            )));
+            return Err(
+                errors::Errors::new(ErrorCodes::FileWriteError).with_message(format!(
+                    "Node size {} exceeds maximum block size {}",
+                    encoded.len(),
+                    max_data_size
+                )),
+            );
         }
 
         // 2. 오프셋 예약 (락을 잡고 즉시 증가시켜서 다른 스레드가 같은 offset을 받지 못하게 함)
@@ -628,26 +647,30 @@ impl BTreeIndex {
         file.seek(SeekFrom::Start(segment_offset))
             .await
             .map_err(|e| {
-                Errors::FileSeekError(format!("Failed to seek to write position: {}", e))
+                errors::Errors::new(ErrorCodes::FileSeekError)
+                    .with_message(format!("Failed to seek to write position: {}", e))
             })?;
 
         // 크기 쓰기
-        file.write_all(&size_bytes)
-            .await
-            .map_err(|e| Errors::FileWriteError(format!("Failed to write node size: {}", e)))?;
+        file.write_all(&size_bytes).await.map_err(|e| {
+            errors::Errors::new(ErrorCodes::FileWriteError)
+                .with_message(format!("Failed to write node size: {}", e))
+        })?;
 
         // 노드 데이터 쓰기
-        file.write_all(&encoded)
-            .await
-            .map_err(|e| Errors::FileWriteError(format!("Failed to write node data: {}", e)))?;
+        file.write_all(&encoded).await.map_err(|e| {
+            errors::Errors::new(ErrorCodes::FileWriteError)
+                .with_message(format!("Failed to write node data: {}", e))
+        })?;
 
         // 나머지 공간을 0으로 패딩 (고정 크기 유지)
         let padding_size = max_data_size - encoded.len();
         if padding_size > 0 {
             let padding = vec![0u8; padding_size];
-            file.write_all(&padding)
-                .await
-                .map_err(|e| Errors::FileWriteError(format!("Failed to write padding: {}", e)))?;
+            file.write_all(&padding).await.map_err(|e| {
+                errors::Errors::new(ErrorCodes::FileWriteError)
+                    .with_message(format!("Failed to write padding: {}", e))
+            })?;
         }
 
         // 메타데이터 저장 (next_offset은 이미 증가되어 있음)
@@ -661,13 +684,15 @@ impl BTreeIndex {
         &self,
         position: BTreeNodePosition,
         node: &BTreeNode,
-    ) -> Result<(), Errors> {
+    ) -> errors::Result<()> {
         // 논리적 오프셋을 세그먼트 정보로 변환
         let (segment_number, segment_offset) = self.offset_to_segment(position.offset);
 
         // 노드 인코딩
-        let encoded = bincode::encode_to_vec(node, bincode::config::standard())
-            .map_err(|e| Errors::FileWriteError(format!("Failed to encode node: {}", e)))?;
+        let encoded = bincode::encode_to_vec(node, bincode::config::standard()).map_err(|e| {
+            errors::Errors::new(ErrorCodes::FileWriteError)
+                .with_message(format!("Failed to encode node: {}", e))
+        })?;
 
         // 고정 크기 블록 체크
         let max_data_size = NODE_SIZE - 4;
@@ -679,11 +704,13 @@ impl BTreeIndex {
                 max_data_size,
                 position.offset
             );
-            return Err(Errors::FileWriteError(format!(
-                "Node size {} exceeds maximum block size {}",
-                encoded.len(),
-                max_data_size
-            )));
+            return Err(
+                errors::Errors::new(ErrorCodes::FileWriteError).with_message(format!(
+                    "Node size {} exceeds maximum block size {}",
+                    encoded.len(),
+                    max_data_size
+                )),
+            );
         }
 
         let node_size = encoded.len() as u32;
@@ -698,33 +725,37 @@ impl BTreeIndex {
         file.seek(SeekFrom::Start(segment_offset))
             .await
             .map_err(|e| {
-                Errors::FileSeekError(format!("Failed to seek to update position: {}", e))
+                errors::Errors::new(ErrorCodes::FileSeekError)
+                    .with_message(format!("Failed to seek to update position: {}", e))
             })?;
 
         // 크기 쓰기
-        file.write_all(&size_bytes)
-            .await
-            .map_err(|e| Errors::FileWriteError(format!("Failed to write node size: {}", e)))?;
+        file.write_all(&size_bytes).await.map_err(|e| {
+            errors::Errors::new(ErrorCodes::FileWriteError)
+                .with_message(format!("Failed to write node size: {}", e))
+        })?;
 
         // 노드 데이터 쓰기
-        file.write_all(&encoded)
-            .await
-            .map_err(|e| Errors::FileWriteError(format!("Failed to write node data: {}", e)))?;
+        file.write_all(&encoded).await.map_err(|e| {
+            errors::Errors::new(ErrorCodes::FileWriteError)
+                .with_message(format!("Failed to write node data: {}", e))
+        })?;
 
         // 나머지 공간을 0으로 패딩
         let padding_size = max_data_size - encoded.len();
         if padding_size > 0 {
             let padding = vec![0u8; padding_size];
-            file.write_all(&padding)
-                .await
-                .map_err(|e| Errors::FileWriteError(format!("Failed to write padding: {}", e)))?;
+            file.write_all(&padding).await.map_err(|e| {
+                errors::Errors::new(ErrorCodes::FileWriteError)
+                    .with_message(format!("Failed to write padding: {}", e))
+            })?;
         }
 
         Ok(())
     }
 
     /// 키를 기반으로 레코드 위치 찾기
-    pub async fn find(&self, key: &str) -> Result<Option<TableRecordPosition>, Errors> {
+    pub async fn find(&self, key: &str) -> errors::Result<Option<TableRecordPosition>> {
         let meta_guard = self.metadata.lock().await;
         let root_pos = match meta_guard.root_position {
             Some(pos) => pos,
@@ -743,7 +774,7 @@ impl BTreeIndex {
         &self,
         node_pos: BTreeNodePosition,
         key: &str,
-    ) -> Result<Option<TableRecordPosition>, Errors> {
+    ) -> errors::Result<Option<TableRecordPosition>> {
         let node = self.read_node(node_pos).await?;
 
         match node.node_type {
@@ -759,10 +790,11 @@ impl BTreeIndex {
             BTreeNodeType::Internal => {
                 // 내부 노드는 반드시 leftmost_child를 가져야 함
                 if node.leftmost_child.is_none() {
-                    return Err(Errors::FileReadError(format!(
-                        "Internal node at offset {} has no leftmost_child. Index may be corrupted.",
-                        node_pos.offset
-                    )));
+                    return Err(errors::Errors::new(ErrorCodes::FileReadError)
+                        .with_message(format!(
+                            "Internal node at offset {} has no leftmost_child. Index may be corrupted.",
+                            node_pos.offset
+                        )));
                 }
 
                 // 내부 노드에서 적절한 자식 찾기
@@ -781,7 +813,7 @@ impl BTreeIndex {
     }
 
     /// 키-값 삽입
-    pub async fn insert(&self, key: String, position: TableRecordPosition) -> Result<(), Errors> {
+    pub async fn insert(&self, key: String, position: TableRecordPosition) -> errors::Result<()> {
         let meta_guard = self.metadata.lock().await;
 
         // 루트가 없으면 새로운 리프 노드 생성
@@ -848,7 +880,7 @@ impl BTreeIndex {
         key: String,
         position: TableRecordPosition,
         order: u16,
-    ) -> Result<Option<(String, BTreeNodePosition)>, Errors> {
+    ) -> errors::Result<Option<(String, BTreeNodePosition)>> {
         let mut node = self.read_node(node_pos).await?;
 
         match node.node_type {
@@ -878,10 +910,11 @@ impl BTreeIndex {
             BTreeNodeType::Internal => {
                 // 내부 노드는 반드시 leftmost_child를 가져야 함
                 if node.leftmost_child.is_none() {
-                    return Err(Errors::FileReadError(format!(
-                        "Internal node at offset {} has no leftmost_child. Index may be corrupted.",
-                        node_pos.offset
-                    )));
+                    return Err(errors::Errors::new(ErrorCodes::FileReadError)
+                        .with_message(format!(
+                            "Internal node at offset {} has no leftmost_child. Index may be corrupted.",
+                            node_pos.offset
+                        )));
                 }
 
                 // 적절한 자식 노드 찾기
@@ -936,7 +969,7 @@ impl BTreeIndex {
         node_pos: BTreeNodePosition,
         mut node: BTreeNode,
         _order: u16,
-    ) -> Result<Option<(String, BTreeNodePosition)>, Errors> {
+    ) -> errors::Result<Option<(String, BTreeNodePosition)>> {
         let mid = node.leaf_entries.len() / 2;
         let split_key = node.leaf_entries[mid].key.clone();
 
@@ -956,7 +989,7 @@ impl BTreeIndex {
         node_pos: BTreeNodePosition,
         mut node: BTreeNode,
         _order: u16,
-    ) -> Result<Option<(String, BTreeNodePosition)>, Errors> {
+    ) -> errors::Result<Option<(String, BTreeNodePosition)>> {
         let mid = node.internal_entries.len() / 2;
         let split_key = node.internal_entries[mid].key.clone();
 
@@ -967,7 +1000,7 @@ impl BTreeIndex {
 
         // mid 위치의 엔트리를 pop하여 new_node의 leftmost_child로 설정
         let mid_entry = node.internal_entries.pop().ok_or_else(|| {
-            Errors::FileReadError(
+            errors::Errors::new(ErrorCodes::FileReadError).with_message(
                 "Internal node split failed: no entry at mid position. This should never happen."
                     .to_string(),
             )
@@ -1003,7 +1036,7 @@ impl BTreeIndex {
     }
 
     /// 키 삭제
-    pub async fn delete(&self, key: &str) -> Result<(), Errors> {
+    pub async fn delete(&self, key: &str) -> errors::Result<()> {
         let meta_guard = self.metadata.lock().await;
         let root_pos = match meta_guard.root_position {
             Some(pos) => pos,
@@ -1022,7 +1055,7 @@ impl BTreeIndex {
         &self,
         node_pos: BTreeNodePosition,
         key: &str,
-    ) -> Result<bool, Errors> {
+    ) -> errors::Result<bool> {
         let mut node = self.read_node(node_pos).await?;
 
         match node.node_type {
@@ -1039,10 +1072,11 @@ impl BTreeIndex {
             BTreeNodeType::Internal => {
                 // 내부 노드는 반드시 leftmost_child를 가져야 함
                 if node.leftmost_child.is_none() {
-                    return Err(Errors::FileReadError(format!(
-                        "Internal node at offset {} has no leftmost_child. Index may be corrupted.",
-                        node_pos.offset
-                    )));
+                    return Err(errors::Errors::new(ErrorCodes::FileReadError)
+                        .with_message(format!(
+                            "Internal node at offset {} has no leftmost_child. Index may be corrupted.",
+                            node_pos.offset
+                        )));
                 }
 
                 // 적절한 자식 노드 찾기
@@ -1061,7 +1095,7 @@ impl BTreeIndex {
     }
 
     /// 키 업데이트 (삭제 후 삽입)
-    pub async fn update(&self, key: String, position: TableRecordPosition) -> Result<(), Errors> {
+    pub async fn update(&self, key: String, position: TableRecordPosition) -> errors::Result<()> {
         self.delete(&key).await?;
         self.insert(key, position).await?;
         Ok(())

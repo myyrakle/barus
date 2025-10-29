@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 use crate::{
     config::{TABLES_DIRECTORY, TABLES_INDEX_DIRECTORY, TABLES_SEGMENT_DIRECTORY},
     disktable::{segment::record::TableSegmentPayload, table::TableInfo},
-    errors::{self, Errors},
+    errors::{self, ErrorCodes},
     memtable::MemtableMap,
     wal::{SharedWALState, state::WALStateWriteHandles},
 };
@@ -39,10 +39,8 @@ impl DiskTableManager {
             tokio::fs::create_dir_all(self.base_path.join(TABLES_DIRECTORY))
                 .await
                 .map_err(|e| {
-                    errors::Errors::TableCreationError(format!(
-                        "Failed to create tables directory: {}",
-                        e
-                    ))
+                    errors::Errors::new(errors::ErrorCodes::TableCreationError)
+                        .with_message(format!("Failed to create tables directory: {}", e))
                 })?;
         }
 
@@ -58,11 +56,13 @@ impl DiskTableManager {
 
         let tables_path = self.base_path.join(TABLES_DIRECTORY);
         let mut dir_entries = tokio::fs::read_dir(tables_path).await.map_err(|e| {
-            errors::Errors::TableListFailed(format!("Failed to read tables directory: {}", e))
+            errors::Errors::new(errors::ErrorCodes::TableListFailed)
+                .with_message(format!("Failed to read tables directory: {}", e))
         })?;
 
         while let Some(entry) = dir_entries.next_entry().await.map_err(|e| {
-            errors::Errors::TableListFailed(format!("Failed to read table entry: {}", e))
+            errors::Errors::new(errors::ErrorCodes::TableListFailed)
+                .with_message(format!("Failed to read table entry: {}", e))
         })? {
             let file_name = entry.file_name();
             if let Some(name_str) = file_name.to_str()
@@ -82,11 +82,13 @@ impl DiskTableManager {
             .join(format!("{}.json", table));
 
         let table_info_bytes = tokio::fs::read(table_path).await.map_err(|e| {
-            errors::Errors::TableNotFound(format!("Failed to read table file: {}", e))
+            errors::Errors::new(errors::ErrorCodes::TableNotFound)
+                .with_message(format!("Failed to read table file: {}", e))
         })?;
 
         let table_info = serde_json::from_slice(&table_info_bytes).map_err(|e| {
-            errors::Errors::TableGetFailed(format!("Failed to deserialize table info: {}", e))
+            errors::Errors::new(errors::ErrorCodes::TableGetFailed)
+                .with_message(format!("Failed to deserialize table info: {}", e))
         })?;
 
         Ok(table_info)
@@ -100,10 +102,8 @@ impl DiskTableManager {
             .join(format!("{}.json", table));
 
         if table_info_path.exists() {
-            return Err(errors::Errors::TableAlreadyExists(format!(
-                "Table '{}' already exists",
-                table
-            )));
+            return Err(errors::Errors::new(errors::ErrorCodes::TableAlreadyExists)
+                .with_message(format!("Table '{}' already exists", table)));
         }
 
         let table_info = table::TableInfo {
@@ -111,19 +111,15 @@ impl DiskTableManager {
         };
 
         let table_info_json = serde_json::to_string_pretty(&table_info).map_err(|e| {
-            errors::Errors::TableCreationError(format!(
-                "Failed to serialize table info to JSON: {}",
-                e
-            ))
+            errors::Errors::new(errors::ErrorCodes::TableCreationError)
+                .with_message(format!("Failed to serialize table info to JSON: {}", e))
         })?;
 
         tokio::fs::write(&table_info_path, table_info_json)
             .await
             .map_err(|e| {
-                errors::Errors::TableCreationError(format!(
-                    "Failed to write table info to file: {}",
-                    e
-                ))
+                errors::Errors::new(errors::ErrorCodes::TableCreationError)
+                    .with_message(format!("Failed to write table info to file: {}", e))
             })?;
 
         // 2. Create table directory
@@ -132,10 +128,8 @@ impl DiskTableManager {
             tokio::fs::create_dir_all(&table_segment_directory)
                 .await
                 .map_err(|e| {
-                    errors::Errors::TableCreationError(format!(
-                        "Failed to create table segment directory: {}",
-                        e
-                    ))
+                    errors::Errors::new(errors::ErrorCodes::TableCreationError)
+                        .with_message(format!("Failed to create table segment directory: {}", e))
                 })?;
         }
 
@@ -145,10 +139,8 @@ impl DiskTableManager {
             tokio::fs::create_dir_all(&table_segment_directory)
                 .await
                 .map_err(|e| {
-                    errors::Errors::TableCreationError(format!(
-                        "Failed to create table segment directory: {}",
-                        e
-                    ))
+                    errors::Errors::new(errors::ErrorCodes::TableCreationError)
+                        .with_message(format!("Failed to create table segment directory: {}", e))
                 })?;
         }
 
@@ -163,10 +155,8 @@ impl DiskTableManager {
             tokio::fs::create_dir_all(&table_index_directory)
                 .await
                 .map_err(|e| {
-                    errors::Errors::TableCreationError(format!(
-                        "Failed to create table index directory: {}",
-                        e
-                    ))
+                    errors::Errors::new(errors::ErrorCodes::TableCreationError)
+                        .with_message(format!("Failed to create table index directory: {}", e))
                 })?;
         }
 
@@ -189,10 +179,8 @@ impl DiskTableManager {
             tokio::fs::remove_file(&table_info_path)
                 .await
                 .map_err(|e| {
-                    errors::Errors::TableCreationError(format!(
-                        "Failed to delete table info file: {}",
-                        e
-                    ))
+                    errors::Errors::new(errors::ErrorCodes::TableCreationError)
+                        .with_message(format!("Failed to delete table info file: {}", e))
                 })?;
         }
 
@@ -202,10 +190,8 @@ impl DiskTableManager {
             tokio::fs::remove_dir_all(&table_segment_directory)
                 .await
                 .map_err(|e| {
-                    errors::Errors::TableCreationError(format!(
-                        "Failed to delete table segment directory: {}",
-                        e
-                    ))
+                    errors::Errors::new(errors::ErrorCodes::TableCreationError)
+                        .with_message(format!("Failed to delete table segment directory: {}", e))
                 })?;
         }
 
@@ -352,7 +338,7 @@ impl DiskTableManager {
             if let Some(ref mut file) = write_handle.state_file {
                 wal_state.save(file).await?;
             } else {
-                return Err(Errors::WALStateFileHandleNotFound);
+                return Err(errors::Errors::new(ErrorCodes::WALStateFileHandleNotFound));
             }
         }
 

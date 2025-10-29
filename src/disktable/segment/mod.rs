@@ -18,7 +18,7 @@ use crate::{
         segment_id::TableSegmentID,
         state::TableSegmentState,
     },
-    errors::{self, Errors},
+    errors,
     os::file_resize_and_set_zero,
 };
 
@@ -69,10 +69,8 @@ impl TableSegmentManager {
             .await
             .or_else(|e| {
                 if e.kind() != std::io::ErrorKind::NotFound {
-                    Err(Errors::FileDeleteError(format!(
-                        "Failed to delete segment files: {}",
-                        e
-                    )))
+                    Err(errors::Errors::new(errors::ErrorCodes::FileDeleteError)
+                        .with_message(format!("Failed to delete segment files: {}", e)))
                 } else {
                     Ok(())
                 }
@@ -83,11 +81,15 @@ impl TableSegmentManager {
             .await
             .or_else(|e| {
                 if e.kind() != std::io::ErrorKind::AlreadyExists {
-                    Err(Errors::FileDeleteError(format!(
-                        "Failed to recreate segments directory '{}': {}",
-                        segments_directory.display(),
-                        e
-                    )))
+                    Err(
+                        errors::Errors::new(errors::ErrorCodes::FileDeleteError).with_message(
+                            format!(
+                                "Failed to recreate segments directory '{}': {}",
+                                segments_directory.display(),
+                                e
+                            ),
+                        ),
+                    )
                 } else {
                     Ok(())
                 }
@@ -113,10 +115,8 @@ impl TableSegmentManager {
         // 1. 모든 세그먼트 파일 읽기 (파일만 필터링해서 파일명 반환)
         let mut segment_files: Vec<_> = std::fs::read_dir(&table_directory)
             .map_err(|e| {
-                errors::Errors::WALSegmentFileOpenError(format!(
-                    "Failed to read Table Segment directory: {}",
-                    e
-                ))
+                errors::Errors::new(errors::ErrorCodes::WALSegmentFileOpenError)
+                    .with_message(format!("Failed to read Table Segment directory: {}", e))
             })?
             .filter_map(|entry| {
                 entry.ok().and_then(|e| {
@@ -162,14 +162,14 @@ impl TableSegmentManager {
             .join(segment_file_name);
 
         let mut file = File::open(&file_path).await.map_err(|e| {
-            Errors::FileOpenError(format!(
+            errors::Errors::new(errors::ErrorCodes::FileOpenError).with_message(format!(
                 "Failed to open file '{}': {}",
                 file_path.display(),
                 e
             ))
         })?;
         let metadata = file.metadata().await.map_err(|e| {
-            Errors::FileMetadataError(format!(
+            errors::Errors::new(errors::ErrorCodes::FileMetadataError).with_message(format!(
                 "Failed to get metadata for file '{}': {}",
                 file_path.display(),
                 e
@@ -185,7 +185,7 @@ impl TableSegmentManager {
 
         for page_index in 0..total_page_number {
             file.read_exact(&mut page_buffer).await.map_err(|e| {
-                Errors::FileReadError(format!(
+                errors::Errors::new(errors::ErrorCodes::FileReadError).with_message(format!(
                     "Failed to read page {} in file '{}': {}",
                     page_index,
                     file_path.display(),
@@ -210,7 +210,11 @@ impl TableSegmentManager {
                         break;
                     }
                     RecordStateFlags::Alive | RecordStateFlags::Deleted => {}
-                    RecordStateFlags::Unknown => return Err(Errors::UnknownTableRecordHeaderFlag),
+                    RecordStateFlags::Unknown => {
+                        return Err(errors::Errors::new(
+                            errors::ErrorCodes::UnknownTableRecordHeaderFlag,
+                        ));
+                    }
                 }
 
                 let size_header_bytes = [
@@ -285,14 +289,14 @@ impl TableSegmentManager {
             .join(file_name);
 
         let mut file = File::open(&file_path).await.map_err(|e| {
-            Errors::FileOpenError(format!(
+            errors::Errors::new(errors::ErrorCodes::FileOpenError).with_message(format!(
                 "Failed to open file '{}': {}",
                 file_path.display(),
                 e
             ))
         })?;
         let metadata = file.metadata().await.map_err(|e| {
-            Errors::FileMetadataError(format!(
+            errors::Errors::new(errors::ErrorCodes::FileMetadataError).with_message(format!(
                 "Failed to get metadata for file '{}': {}",
                 file_path.display(),
                 e
@@ -311,7 +315,7 @@ impl TableSegmentManager {
             file.seek(SeekFrom::Start(flag_header_offset))
                 .await
                 .map_err(|e| {
-                    Errors::FileSeekError(format!(
+                    errors::Errors::new(errors::ErrorCodes::FileSeekError).with_message(format!(
                         "Failed to seek to offset {} in file '{}': {}",
                         flag_header_offset,
                         file_path.display(),
@@ -324,7 +328,7 @@ impl TableSegmentManager {
                 .read_u8()
                 .await
                 .map_err(|e| {
-                    Errors::FileReadError(format!(
+                    errors::Errors::new(errors::ErrorCodes::FileReadError).with_message(format!(
                         "Failed to read header byte at offset {} in file '{}': {}",
                         flag_header_offset,
                         file_path.display(),
@@ -340,11 +344,15 @@ impl TableSegmentManager {
                     break;
                 }
                 RecordStateFlags::Alive | RecordStateFlags::Deleted => {}
-                RecordStateFlags::Unknown => return Err(Errors::UnknownTableRecordHeaderFlag),
+                RecordStateFlags::Unknown => {
+                    return Err(errors::Errors::new(
+                        errors::ErrorCodes::UnknownTableRecordHeaderFlag,
+                    ));
+                }
             }
 
             let size_header = file.read_u32().await.map_err(|e| {
-                Errors::FileReadError(format!(
+                errors::Errors::new(errors::ErrorCodes::FileReadError).with_message(format!(
                     "Failed to read size header at offset {} in file '{}': {}",
                     flag_header_offset + 1,
                     file_path.display(),
@@ -383,7 +391,10 @@ impl TableSegmentManager {
             .read(true)
             .open(new_segment_file_path)
             .await
-            .map_err(|err| Errors::TableSegmentFileOpenError(err.to_string()))?;
+            .map_err(|err| {
+                errors::Errors::new(errors::ErrorCodes::TableSegmentFileOpenError)
+                    .with_message(err.to_string())
+            })?;
 
         Ok(file)
     }
@@ -416,7 +427,10 @@ impl TableSegmentManager {
             .write(true)
             .open(new_segment_file_path)
             .await
-            .map_err(|err| Errors::TableSegmentFileCreateError(err.to_string()))?;
+            .map_err(|err| {
+                errors::Errors::new(errors::ErrorCodes::TableSegmentFileCreateError)
+                    .with_message(err.to_string())
+            })?;
 
         file_resize_and_set_zero(&mut file, size).await?;
 
@@ -468,7 +482,7 @@ impl TableSegmentManager {
         &self,
         table_name: &str,
         record: TableSegmentPayload,
-    ) -> Result<TableRecordPosition, Errors> {
+    ) -> errors::Result<TableRecordPosition> {
         // 1. Payload Prepare
         let encoded_bytes = self.codec.encode(&record)?;
 
@@ -518,9 +532,13 @@ impl TableSegmentManager {
 
         file.seek(SeekFrom::Start(table.current_page_offset as u64))
             .await
-            .map_err(|e| Errors::FileSeekError(format!("Failed to seek file: {}", e)))?;
+            .map_err(|e| {
+                errors::Errors::new(errors::ErrorCodes::FileSeekError)
+                    .with_message(format!("Failed to seek file: {}", e))
+            })?;
         file.write_all(&write_buffer).await.map_err(|e| {
-            Errors::TableSegmentFileWriteError(format!("Failed to write data: {}", e))
+            errors::Errors::new(errors::ErrorCodes::TableSegmentFileWriteError)
+                .with_message(format!("Failed to write data: {}", e))
         })?;
 
         let position = TableRecordPosition {
@@ -538,7 +556,7 @@ impl TableSegmentManager {
         &self,
         table_name: &str,
         position: TableRecordPosition,
-    ) -> Result<(RecordStateFlags, TableSegmentPayload), Errors> {
+    ) -> errors::Result<(RecordStateFlags, TableSegmentPayload)> {
         let segment_file_lock = self
             .lock_segment_file(table_name, &position.segment_id)
             .await;
@@ -550,23 +568,27 @@ impl TableSegmentManager {
 
         file.seek(SeekFrom::Start(position.offset as u64))
             .await
-            .map_err(|e| Errors::FileSeekError(format!("Failed to seek file: {}", e)))?;
+            .map_err(|e| {
+                errors::Errors::new(errors::ErrorCodes::FileSeekError)
+                    .with_message(format!("Failed to seek file: {}", e))
+            })?;
 
-        let flag_byte = file
-            .read_u8()
-            .await
-            .map_err(|e| Errors::FileReadError(format!("Failed to read flag byte: {}", e)))?;
+        let flag_byte = file.read_u8().await.map_err(|e| {
+            errors::Errors::new(errors::ErrorCodes::FileReadError)
+                .with_message(format!("Failed to read flag byte: {}", e))
+        })?;
         let flag = RecordStateFlags::from(flag_byte);
 
-        let size_header = file
-            .read_u32()
-            .await
-            .map_err(|e| Errors::FileReadError(format!("Failed to read size header: {}", e)))?;
+        let size_header = file.read_u32().await.map_err(|e| {
+            errors::Errors::new(errors::ErrorCodes::FileReadError)
+                .with_message(format!("Failed to read size header: {}", e))
+        })?;
 
         let mut buffer = vec![0; size_header as usize];
-        file.read_exact(&mut buffer)
-            .await
-            .map_err(|e| Errors::FileReadError(format!("Failed to read data: {}", e)))?;
+        file.read_exact(&mut buffer).await.map_err(|e| {
+            errors::Errors::new(errors::ErrorCodes::FileReadError)
+                .with_message(format!("Failed to read data: {}", e))
+        })?;
 
         drop(read_lock);
 
@@ -580,7 +602,7 @@ impl TableSegmentManager {
         &self,
         table_name: &str,
         position: TableRecordPosition,
-    ) -> Result<(), Errors> {
+    ) -> errors::Result<()> {
         let segment_file_lock = self
             .lock_segment_file(table_name, &position.segment_id)
             .await;
@@ -592,13 +614,17 @@ impl TableSegmentManager {
 
         file.seek(SeekFrom::Start(position.offset as u64))
             .await
-            .map_err(|e| Errors::FileSeekError(format!("Failed to seek file: {}", e)))?;
+            .map_err(|e| {
+                errors::Errors::new(errors::ErrorCodes::FileSeekError)
+                    .with_message(format!("Failed to seek file: {}", e))
+            })?;
 
         let delete_flag = RecordStateFlags::Deleted as u8;
 
-        file.write_u8(delete_flag)
-            .await
-            .map_err(|e| Errors::FileWriteError(format!("Failed to write delete flag: {}", e)))?;
+        file.write_u8(delete_flag).await.map_err(|e| {
+            errors::Errors::new(errors::ErrorCodes::FileWriteError)
+                .with_message(format!("Failed to write delete flag: {}", e))
+        })?;
 
         Ok(())
     }

@@ -18,14 +18,19 @@ impl WALRecordBincodeCodec {
 
 impl WALRecordCodec for WALRecordBincodeCodec {
     fn encode(&self, record: &WALRecord, buf: &mut [u8]) -> errors::Result<usize> {
-        bincode::encode_into_slice(record, buf, Self::CONFIG)
-            .map_err(|e| errors::Errors::WALRecordEncodeError(e.to_string()))
+        bincode::encode_into_slice(record, buf, Self::CONFIG).map_err(|e| {
+            errors::Errors::new(errors::ErrorCodes::WALRecordEncodeError)
+                .with_message(e.to_string())
+        })
     }
 
     fn decode(&self, data: &[u8]) -> errors::Result<WALRecord> {
         // bincode 2.x uses decode_from_slice with config
         let (decoded, _len): (WALRecord, usize) = bincode::decode_from_slice(data, Self::CONFIG)
-            .map_err(|e| errors::Errors::WALRecordDecodeError(e.to_string()))?;
+            .map_err(|e| {
+                errors::Errors::new(errors::ErrorCodes::WALRecordDecodeError)
+                    .with_message(e.to_string())
+            })?;
         Ok(decoded)
     }
 }

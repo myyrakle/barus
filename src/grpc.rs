@@ -224,9 +224,9 @@ impl BarusService for BarusGrpcService {
             })),
             Err(e) => {
                 // Check for specific error types
-                use crate::errors::Errors;
-                match e {
-                    Errors::MemtableFlushAlreadyInProgress => {
+                use crate::errors::ErrorCodes;
+                match e.error_code {
+                    ErrorCodes::MemtableFlushAlreadyInProgress => {
                         Err(Status::already_exists("Memtable flush already in progress"))
                     }
                     _ => Err(Status::internal(format!(

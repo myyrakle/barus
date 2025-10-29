@@ -3,7 +3,9 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::{
-    config::TABLES_DIRECTORY, disktable::segment::position::TableRecordPosition, errors::Errors,
+    config::TABLES_DIRECTORY,
+    disktable::segment::position::TableRecordPosition,
+    errors::{self, ErrorCodes},
 };
 
 pub mod btree;
@@ -23,7 +25,7 @@ impl IndexManager {
     }
 
     // delete index file and remove from in-memory map
-    pub async fn delete_index(&self, table_name: &str) -> Result<(), Errors> {
+    pub async fn delete_index(&self, table_name: &str) -> errors::Result<()> {
         // 1. remove all file
         let index_path = self
             .base_path
@@ -33,10 +35,8 @@ impl IndexManager {
 
         tokio::fs::remove_dir_all(index_path).await.or_else(|e| {
             if e.kind() != std::io::ErrorKind::NotFound {
-                Err(Errors::FileDeleteError(format!(
-                    "Failed to delete index files: {}",
-                    e
-                )))
+                Err(errors::Errors::new(ErrorCodes::FileDeleteError)
+                    .with_message(format!("Failed to delete index files: {}", e)))
             } else {
                 Ok(())
             }
@@ -53,7 +53,7 @@ impl IndexManager {
     async fn get_or_create_index(
         &self,
         table_name: &str,
-    ) -> Result<Arc<btree::BTreeIndex>, Errors> {
+    ) -> errors::Result<Arc<btree::BTreeIndex>> {
         let mut indices = self.indices.lock().await;
 
         if let Some(index) = indices.get(table_name) {
@@ -77,12 +77,12 @@ impl IndexManager {
         table_name: &str,
         key: &str,
         position: &TableRecordPosition,
-    ) -> Result<(), Errors> {
+    ) -> errors::Result<()> {
         let index = self.get_or_create_index(table_name).await?;
         index.insert(key.to_string(), position.clone()).await
     }
 
-    pub async fn delete_record(&self, table_name: &str, key: &str) -> Result<(), Errors> {
+    pub async fn delete_record(&self, table_name: &str, key: &str) -> errors::Result<()> {
         let index = self.get_or_create_index(table_name).await?;
         index.delete(key).await
     }
@@ -92,7 +92,7 @@ impl IndexManager {
         table_name: &str,
         key: &str,
         position: &TableRecordPosition,
-    ) -> Result<(), Errors> {
+    ) -> errors::Result<()> {
         let index = self.get_or_create_index(table_name).await?;
         index.update(key.to_string(), position.clone()).await
     }
@@ -101,7 +101,7 @@ impl IndexManager {
         &self,
         table_name: &str,
         key: &str,
-    ) -> Result<Option<TableRecordPosition>, Errors> {
+    ) -> errors::Result<Option<TableRecordPosition>> {
         let index = self.get_or_create_index(table_name).await?;
         index.find(key).await
     }

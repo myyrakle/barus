@@ -7,7 +7,7 @@ use axum::{
     routing::{delete, post, put},
 };
 
-use crate::{config::HTTP_PORT, db::DBEngine, errors::Errors};
+use crate::{config::HTTP_PORT, db::DBEngine, errors::ErrorCodes};
 
 pub async fn run_server(db_engine: Arc<DBEngine>) {
     use axum::{Router, routing::get};
@@ -93,20 +93,20 @@ async fn get_table(
                 .body(serde_json::to_string(&response).unwrap())
                 .unwrap()
         }
-        Err(err) => match err {
-            Errors::TableNotFound(_) => {
+        Err(err) => match err.error_code {
+            ErrorCodes::TableNotFound => {
                 let error_message = format!("Table '{}' not found", table);
                 Response::builder().status(404).body(error_message).unwrap()
             }
-            Errors::TableNameIsEmpty => {
+            ErrorCodes::TableNameIsEmpty => {
                 let error_message = "Table name is empty".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::TableNameTooLong => {
+            ErrorCodes::TableNameTooLong => {
                 let error_message = "Table name is too long".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::TableNameIsInvalid(_) => {
+            ErrorCodes::TableNameIsInvalid => {
                 let error_message = "Table name is invalid".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
@@ -169,20 +169,20 @@ async fn create_table(
             .status(200)
             .body(format!("Table '{}' created successfully", table))
             .unwrap(),
-        Err(error) => match error {
-            Errors::TableNameIsEmpty => {
+        Err(error) => match error.error_code {
+            ErrorCodes::TableNameIsEmpty => {
                 let error_message = "Table name is empty".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::TableNameTooLong => {
+            ErrorCodes::TableNameTooLong => {
                 let error_message = "Table name is too long".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::TableNameIsInvalid(_) => {
+            ErrorCodes::TableNameIsInvalid => {
                 let error_message = "Table name is invalid".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::TableAlreadyExists(_) => {
+            ErrorCodes::TableAlreadyExists => {
                 let error_message = format!("Table '{}' already exists", table);
                 Response::builder().status(409).body(error_message).unwrap()
             }
@@ -203,16 +203,16 @@ async fn delete_table(
             .status(200)
             .body(format!("Table '{}' deleted successfully", table))
             .unwrap(),
-        Err(e) => match e {
-            Errors::TableNameIsEmpty => {
+        Err(e) => match e.error_code {
+            ErrorCodes::TableNameIsEmpty => {
                 let error_message = "Table name is empty".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::TableNameTooLong => {
+            ErrorCodes::TableNameTooLong => {
                 let error_message = "Table name is too long".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::TableNameIsInvalid(_) => {
+            ErrorCodes::TableNameIsInvalid => {
                 let error_message = "Table name is invalid".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
@@ -233,16 +233,16 @@ async fn truncate_table(
             .status(200)
             .body(format!("Table '{}' truncated successfully", table))
             .unwrap(),
-        Err(e) => match e {
-            Errors::TableNameIsEmpty => {
+        Err(e) => match e.error_code {
+            ErrorCodes::TableNameIsEmpty => {
                 let error_message = "Table name is empty".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::TableNameTooLong => {
+            ErrorCodes::TableNameTooLong => {
                 let error_message = "Table name is too long".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::TableNameIsInvalid(_) => {
+            ErrorCodes::TableNameIsInvalid => {
                 let error_message = "Table name is invalid".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
@@ -287,32 +287,32 @@ async fn get_value(
                 .body(serde_json::to_string(&response).unwrap())
                 .unwrap()
         }
-        Err(error) => match error {
-            Errors::TableNotFound(_) => {
+        Err(error) => match error.error_code {
+            ErrorCodes::TableNotFound => {
                 let error_message = format!("Table '{}' not found", table);
                 Response::builder().status(404).body(error_message).unwrap()
             }
-            Errors::TableNameIsEmpty => {
+            ErrorCodes::TableNameIsEmpty => {
                 let error_message = "Table name is empty".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::TableNameTooLong => {
+            ErrorCodes::TableNameTooLong => {
                 let error_message = "Table name is too long".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::TableNameIsInvalid(_) => {
+            ErrorCodes::TableNameIsInvalid => {
                 let error_message = "Table name is invalid".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::KeyIsEmpty => Response::builder()
+            ErrorCodes::KeyIsEmpty => Response::builder()
                 .status(400)
                 .body("Key cannot be empty".into())
                 .unwrap(),
-            Errors::KeySizeTooLarge => Response::builder()
+            ErrorCodes::KeySizeTooLarge => Response::builder()
                 .status(400)
                 .body("Key size is too large".into())
                 .unwrap(),
-            Errors::ValueNotFound(_) => Response::builder()
+            ErrorCodes::ValueNotFound => Response::builder()
                 .status(404)
                 .body("Value not found".into())
                 .unwrap(),
@@ -376,32 +376,32 @@ async fn put_value(
                 .body(serde_json::to_string(&response).unwrap())
                 .unwrap()
         }
-        Err(error) => match error {
-            Errors::TableNotFound(_) => {
+        Err(error) => match error.error_code {
+            ErrorCodes::TableNotFound => {
                 let error_message = format!("Table '{}' not found", table);
                 Response::builder().status(404).body(error_message).unwrap()
             }
-            Errors::TableNameIsEmpty => {
+            ErrorCodes::TableNameIsEmpty => {
                 let error_message = "Table name is empty".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::TableNameTooLong => {
+            ErrorCodes::TableNameTooLong => {
                 let error_message = "Table name is too long".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::TableNameIsInvalid(_) => {
+            ErrorCodes::TableNameIsInvalid => {
                 let error_message = "Table name is invalid".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::KeyIsEmpty => Response::builder()
+            ErrorCodes::KeyIsEmpty => Response::builder()
                 .status(400)
                 .body("Key cannot be empty".into())
                 .unwrap(),
-            Errors::KeySizeTooLarge => Response::builder()
+            ErrorCodes::KeySizeTooLarge => Response::builder()
                 .status(400)
                 .body("Key size is too large".into())
                 .unwrap(),
-            Errors::ValueSizeTooLarge => Response::builder()
+            ErrorCodes::ValueSizeTooLarge => Response::builder()
                 .status(400)
                 .body("Value size is too large".into())
                 .unwrap(),
@@ -437,28 +437,28 @@ async fn delete_value(
                 .body(response)
                 .unwrap()
         }
-        Err(error) => match error {
-            Errors::TableNotFound(_) => {
+        Err(error) => match error.error_code {
+            ErrorCodes::TableNotFound => {
                 let error_message = format!("Table '{}' not found", table);
                 Response::builder().status(404).body(error_message).unwrap()
             }
-            Errors::TableNameIsEmpty => {
+            ErrorCodes::TableNameIsEmpty => {
                 let error_message = "Table name is empty".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::TableNameTooLong => {
+            ErrorCodes::TableNameTooLong => {
                 let error_message = "Table name is too long".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::TableNameIsInvalid(_) => {
+            ErrorCodes::TableNameIsInvalid => {
                 let error_message = "Table name is invalid".to_string();
                 Response::builder().status(400).body(error_message).unwrap()
             }
-            Errors::KeyIsEmpty => Response::builder()
+            ErrorCodes::KeyIsEmpty => Response::builder()
                 .status(400)
                 .body("Key cannot be empty".into())
                 .unwrap(),
-            Errors::KeySizeTooLarge => Response::builder()
+            ErrorCodes::KeySizeTooLarge => Response::builder()
                 .status(400)
                 .body("Key size is too large".into())
                 .unwrap(),
@@ -489,8 +489,8 @@ pub async fn trigger_memtable_flush(Extension(db): Extension<Arc<DBEngine>>) -> 
             .status(200)
             .body("Memtable flushed successfully".into())
             .unwrap(),
-        Err(error) => match error {
-            Errors::MemtableFlushAlreadyInProgress => Response::builder()
+        Err(error) => match error.error_code {
+            ErrorCodes::MemtableFlushAlreadyInProgress => Response::builder()
                 .status(409)
                 .body("Memtable flush already in progress".into())
                 .unwrap(),
