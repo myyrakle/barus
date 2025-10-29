@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 
 use crate::{
     bridge::event::{MemtableFlushEvent, MemtableFlushEventSender},
-    errors::{self, Errors},
+    errors::{self, ErrorCodes},
     memtable::table::{Memtable, MemtableGetValueResult},
     system::SystemInfo,
     wal::{
@@ -99,8 +99,8 @@ impl MemtableManager {
                     match self.delete_value(payload.table, payload.key).await {
                         Ok(_) => (),
                         Err(error) => {
-                            match error {
-                                Errors::TableNotFound(_) | Errors::ValueNotFound(_) => {
+                            match error.error_code {
+                                ErrorCodes::TableNotFound | ErrorCodes::ValueNotFound => {
                                     // 로그로 남기고 무시
                                     log::debug!("WAL replay delete failed but ignored: {}", error);
                                 }
@@ -201,7 +201,9 @@ impl MemtableManager {
 
             self.block_write.store(false, Ordering::SeqCst);
         } else {
-            return Err(errors::Errors::MemtableFlushAlreadyInProgress);
+            return Err(errors::Errors::new(
+                errors::ErrorCodes::MemtableFlushAlreadyInProgress,
+            ));
         }
 
         Ok(())
@@ -281,7 +283,10 @@ impl MemtableManager {
 
             match memtable_map.get(&table) {
                 Some(memtable) => memtable.clone(),
-                None => return Err(errors::Errors::TableNotFound(table.to_string())),
+                None => {
+                    return Err(errors::Errors::new(errors::ErrorCodes::TableNotFound)
+                        .with_message(table.to_string()));
+                }
             }
         };
 
@@ -359,7 +364,8 @@ impl MemtableManager {
 
                 Ok(())
             }
-            None => Err(Errors::TableNotFound(format!("Table not found: {}", table))),
+            None => Err(errors::Errors::new(ErrorCodes::TableNotFound)
+                .with_message(format!("Table not found: {}", table))),
         }
     }
 }

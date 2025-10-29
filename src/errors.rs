@@ -1,118 +1,153 @@
-#[derive(Debug)]
-pub enum Errors {
+use std::backtrace::Backtrace;
+
+pub struct Errors {
+    pub error_code: ErrorCodes,
+    pub backtrace: Backtrace,
+    pub message: Option<String>,
+}
+
+impl Errors {
+    pub fn new(error_code: ErrorCodes) -> Self {
+        Errors {
+            error_code,
+            backtrace: Backtrace::capture(),
+            message: None,
+        }
+    }
+
+    pub fn with_message(mut self, message: String) -> Self {
+        self.message = Some(message);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ErrorCodes {
     // WAL related errors
-    WALInitializationError(String),
-    WALRecordEncodeError(String),
-    WALRecordDecodeError(String),
-    WALRecordWriteError(String),
-    WALStateReadError(String),
-    WALStateDecodeError(String),
-    WALStateEncodeError(String),
-    WALStateWriteError(String),
-    WALSegmentIDParseError(String),
-    WALSegmentFileOpenError(String),
-    WALSegmentFileDeleteError(String),
+    WALInitializationError,
+    WALRecordEncodeError,
+    WALRecordDecodeError,
+    WALRecordWriteError,
+    WALStateReadError,
+    WALStateDecodeError,
+    WALStateEncodeError,
+    WALStateWriteError,
+    WALSegmentIDParseError,
+    WALSegmentFileOpenError,
+    WALSegmentFileDeleteError,
 
     // Table related errors
-    TableSegmentIDParseError(String),
-    TableSegmentFileCreateError(String),
-    TableSegmentFileOpenError(String),
-    TableSegmentFileWriteError(String),
-    TableRecordDecodeError(String),
-    TableRecordEncodeError(String),
+    TableSegmentIDParseError,
+    TableSegmentFileCreateError,
+    TableSegmentFileOpenError,
+    TableSegmentFileWriteError,
+    TableRecordDecodeError,
+    TableRecordEncodeError,
+    TableCreationError,
 
-    TableCreationError(String),
-    FileOpenError(String),
-    FileMetadataError(String),
-    FileSeekError(String),
-    FileReadError(String),
-    FileWriteError(String),
-    FileDeleteError(String),
-    TableListFailed(String),
-    TableGetFailed(String),
-    WALStateFileHandleNotFound,
-    UnknownTableRecordHeaderFlag,
+    // General Errors
+    FileOpenError,
+    FileMetadataError,
+    FileSeekError,
+    FileReadError,
+    FileWriteError,
+    FileDeleteError,
 
     // User Bad Request Errors
-    TableNotFound(String),
-    ValueNotFound(String),
-    TableAlreadyExists(String),
+    TableNotFound,
+    ValueNotFound,
+    TableAlreadyExists,
     TableNameIsEmpty,
     TableNameTooLong,
-    TableNameIsInvalid(String),
+    TableNameIsInvalid,
     KeyIsEmpty,
     KeySizeTooLarge,
     ValueSizeTooLarge,
     MemtableFlushAlreadyInProgress,
+
+    // Internal Errors
+    TableListFailed,
+    TableGetFailed,
+    WALStateFileHandleNotFound,
+    UnknownTableRecordHeaderFlag,
 }
 
-impl std::fmt::Display for Errors {
+impl std::fmt::Display for ErrorCodes {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Errors::WALInitializationError(msg) => write!(f, "WAL Initialization Error: {}", msg),
-            Errors::WALRecordEncodeError(msg) => write!(f, "WAL Record Encode Error: {}", msg),
-            Errors::WALRecordDecodeError(msg) => write!(f, "WAL Record Decode Error: {}", msg),
-            Errors::WALRecordWriteError(msg) => write!(f, "WAL Record Write Error: {}", msg),
-            Errors::WALStateReadError(msg) => write!(f, "WAL State Read Error: {}", msg),
-            Errors::WALStateDecodeError(msg) => write!(f, "WAL State Decode Error: {}", msg),
-            Errors::WALStateEncodeError(msg) => write!(f, "WAL State Encode Error: {}", msg),
-            Errors::WALStateWriteError(msg) => write!(f, "WAL State Write Error: {}", msg),
-            Errors::WALSegmentIDParseError(msg) => write!(f, "WAL Segment ID Parse Error: {}", msg),
-            Errors::WALSegmentFileOpenError(msg) => {
-                write!(f, "WAL Segment File Open Error: {}", msg)
-            }
-            Errors::WALSegmentFileDeleteError(msg) => {
-                write!(f, "WAL Segment File Delete Error: {}", msg)
-            }
-            Errors::TableSegmentIDParseError(msg) => {
-                write!(f, "Table Segment ID Parse Error: {}", msg)
-            }
-            Errors::TableSegmentFileCreateError(msg) => {
-                write!(f, "Table Segment File Create Error: {}", msg)
-            }
-            Errors::TableSegmentFileWriteError(msg) => {
-                write!(f, "Table Segment File Write Error: {}", msg)
-            }
-            Errors::TableNotFound(msg) => write!(f, "Table Not Found: {}", msg),
-            Errors::ValueNotFound(msg) => write!(f, "Value Not Found: {}", msg),
-            Errors::TableAlreadyExists(msg) => write!(f, "Table Already Exists: {}", msg),
-            Errors::TableCreationError(msg) => write!(f, "Table Creation Error: {}", msg),
-            Errors::TableNameIsEmpty => write!(f, "Table Name Is Empty"),
-            Errors::TableNameIsInvalid(msg) => write!(f, "Table Name Is Invalid: {}", msg),
-            Errors::TableNameTooLong => write!(f, "Table Name Too Long"),
-            Errors::TableGetFailed(msg) => write!(f, "Table Get Failed: {}", msg),
-            Errors::TableListFailed(msg) => write!(f, "Table List Failed: {}", msg),
-            Errors::KeySizeTooLarge => write!(f, "Key Size Too Large"),
-            Errors::KeyIsEmpty => write!(f, "Key Is Empty"),
-            Errors::ValueSizeTooLarge => write!(f, "Value Size Too Large"),
-            Errors::FileOpenError(msg) => write!(f, "File Open Error: {}", msg),
-            Errors::FileMetadataError(msg) => write!(f, "File Metadata Error: {}", msg),
-            Errors::FileSeekError(msg) => write!(f, "File Seek Error: {}", msg),
-            Errors::FileReadError(msg) => write!(f, "File Read Error: {}", msg),
-            Errors::FileWriteError(msg) => write!(f, "File Write Error: {}", msg),
-            Errors::FileDeleteError(msg) => write!(f, "File Delete Error: {}", msg),
-            Errors::MemtableFlushAlreadyInProgress => {
+            ErrorCodes::WALInitializationError => write!(f, "WAL Initialization Error"),
+            ErrorCodes::WALRecordEncodeError => write!(f, "WAL Record Encode Error"),
+            ErrorCodes::WALRecordDecodeError => write!(f, "WAL Record Decode Error"),
+            ErrorCodes::WALRecordWriteError => write!(f, "WAL Record Write Error"),
+            ErrorCodes::WALStateReadError => write!(f, "WAL State Read Error"),
+            ErrorCodes::WALStateDecodeError => write!(f, "WAL State Decode Error"),
+            ErrorCodes::WALStateEncodeError => write!(f, "WAL State Encode Error"),
+            ErrorCodes::WALStateWriteError => write!(f, "WAL State Write Error"),
+            ErrorCodes::WALSegmentIDParseError => write!(f, "WAL Segment ID Parse Error"),
+            ErrorCodes::WALSegmentFileOpenError => write!(f, "WAL Segment File Open Error"),
+            ErrorCodes::WALSegmentFileDeleteError => write!(f, "WAL Segment File Delete Error"),
+            ErrorCodes::TableSegmentIDParseError => write!(f, "Table Segment ID Parse Error"),
+            ErrorCodes::TableSegmentFileCreateError => write!(f, "Table Segment File Create Error"),
+            ErrorCodes::TableSegmentFileWriteError => write!(f, "Table Segment File Write Error"),
+            ErrorCodes::TableNotFound => write!(f, "Table Not Found"),
+            ErrorCodes::ValueNotFound => write!(f, "Value Not Found"),
+            ErrorCodes::TableAlreadyExists => write!(f, "Table Already Exists"),
+            ErrorCodes::TableCreationError => write!(f, "Table Creation Error"),
+            ErrorCodes::TableNameIsEmpty => write!(f, "Table Name Is Empty"),
+            ErrorCodes::TableNameIsInvalid => write!(f, "Table Name Is Invalid"),
+            ErrorCodes::TableNameTooLong => write!(f, "Table Name Too Long"),
+            ErrorCodes::TableGetFailed => write!(f, "Table Get Failed"),
+            ErrorCodes::TableListFailed => write!(f, "Table List Failed"),
+            ErrorCodes::KeySizeTooLarge => write!(f, "Key Size Too Large"),
+            ErrorCodes::KeyIsEmpty => write!(f, "Key Is Empty"),
+            ErrorCodes::ValueSizeTooLarge => write!(f, "Value Size Too Large"),
+            ErrorCodes::FileOpenError => write!(f, "File Open Error"),
+            ErrorCodes::FileMetadataError => write!(f, "File Metadata Error"),
+            ErrorCodes::FileSeekError => write!(f, "File Seek Error"),
+            ErrorCodes::FileReadError => write!(f, "File Read Error"),
+            ErrorCodes::FileWriteError => write!(f, "File Write Error"),
+            ErrorCodes::FileDeleteError => write!(f, "File Delete Error"),
+            ErrorCodes::MemtableFlushAlreadyInProgress => {
                 write!(f, "Memtable Flush Already In Progress")
             }
-            Errors::TableSegmentFileOpenError(msg) => {
-                write!(f, "Table Segment File Open Error: {}", msg)
-            }
-            Errors::WALStateFileHandleNotFound => {
-                write!(f, "WAL State File Handle Not Found")
-            }
-            Errors::TableRecordDecodeError(msg) => {
-                write!(f, "Table Record Decode Error: {}", msg)
-            }
-            Errors::TableRecordEncodeError(msg) => {
-                write!(f, "Table Record Encode Error: {}", msg)
-            }
-            Errors::UnknownTableRecordHeaderFlag => {
+            ErrorCodes::TableSegmentFileOpenError => write!(f, "Table Segment File Open Error"),
+            ErrorCodes::WALStateFileHandleNotFound => write!(f, "WAL State File Handle Not Found"),
+            ErrorCodes::TableRecordDecodeError => write!(f, "Table Record Decode Error"),
+            ErrorCodes::TableRecordEncodeError => write!(f, "Table Record Encode Error"),
+            ErrorCodes::UnknownTableRecordHeaderFlag => {
                 write!(f, "Unknown Table Record Header Flag")
             }
         }
     }
 }
 
+impl std::fmt::Display for Errors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(msg) = &self.message {
+            write!(f, "{}: {}", self.error_code, msg)
+        } else {
+            write!(f, "{}", self.error_code)
+        }
+    }
+}
+
+impl std::fmt::Debug for Errors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(msg) = &self.message {
+            write!(f, "{:?} = {}\n{}", self.error_code, msg, self.backtrace)
+        } else {
+            write!(f, "{:?}\n{}", self.error_code, self.backtrace)
+        }
+    }
+}
+
+impl std::error::Error for ErrorCodes {}
 impl std::error::Error for Errors {}
+
+impl From<ErrorCodes> for Errors {
+    fn from(error_code: ErrorCodes) -> Self {
+        Errors::new(error_code)
+    }
+}
 
 pub type Result<T> = std::result::Result<T, Errors>;

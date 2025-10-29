@@ -8,10 +8,8 @@ pub async fn file_resize_and_set_zero(file: &mut File, size: u32) -> errors::Res
     let file_size = match file.metadata().await {
         Ok(metadata) => metadata.len(),
         Err(e) => {
-            return Err(errors::Errors::FileOpenError(format!(
-                "Failed to get file metadata: {}",
-                e
-            )));
+            return Err(errors::Errors::new(errors::ErrorCodes::FileOpenError)
+                .with_message(format!("Failed to get file metadata: {}", e)));
         }
     };
 
@@ -27,31 +25,31 @@ pub async fn file_resize_and_set_zero(file: &mut File, size: u32) -> errors::Res
     };
 
     if result != 0 {
-        return Err(errors::Errors::FileOpenError(format!(
-            "Failed to zero-fill new WAL segment file: {}",
-            std::io::Error::last_os_error()
-        )));
+        return Err(
+            errors::Errors::new(errors::ErrorCodes::FileOpenError).with_message(format!(
+                "Failed to zero-fill new WAL segment file: {}",
+                std::io::Error::last_os_error()
+            )),
+        );
     }
 
     Ok(())
 }
 
 #[cfg(not(target_os = "linux"))]
-pub async fn file_resize_and_set_zero(file: &mut File, size: u32) -> Result<(), errors::Errors> {
+pub async fn file_resize_and_set_zero(file: &mut File, size: u32) -> errors::Result<()> {
     use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
     let file_size = match file.metadata().await {
         Ok(metadata) => metadata.len(),
         Err(e) => {
-            return Err(errors::Errors::FileOpenError(format!(
-                "Failed to get file metadata: {}",
-                e
-            )));
+            return Err(errors::Errors::new(errors::ErrorCodes::FileOpenError)
+                .with_message(format!("Failed to get file metadata: {}", e)));
         }
     };
 
     file.set_len(file_size + size as u64).await.map_err(|e| {
-        errors::Errors::WALSegmentFileOpenError(format!(
+        errors::Errors::new(errors::ErrorCodes::WALSegmentFileOpenError).with_message(format!(
             "Failed to set length for new WAL segment file: {}",
             e
         ))
@@ -61,15 +59,19 @@ pub async fn file_resize_and_set_zero(file: &mut File, size: u32) -> Result<(), 
 
     file.seek(std::io::SeekFrom::Start(file_size))
         .await
-        .map_err(|e| errors::Errors::WALSegmentFileOpenError(e.to_string()))?;
+        .map_err(|e| {
+            errors::Errors::new(errors::ErrorCodes::WALSegmentFileOpenError)
+                .with_message(e.to_string())
+        })?;
 
     file.write_all(&zero_bytes).await.map_err(|e| {
-        errors::Errors::FileOpenError(format!("Failed to zero-fill new WAL segment file: {}", e))
+        errors::Errors::new(errors::ErrorCodes::FileOpenError)
+            .with_message(format!("Failed to zero-fill new WAL segment file: {}", e))
     })?;
 
-    file.seek(std::io::SeekFrom::Start(0))
-        .await
-        .map_err(|e| errors::Errors::WALSegmentFileOpenError(e.to_string()))?;
+    file.seek(std::io::SeekFrom::Start(0)).await.map_err(|e| {
+        errors::Errors::new(errors::ErrorCodes::WALSegmentFileOpenError).with_message(e.to_string())
+    })?;
 
     Ok(())
 }

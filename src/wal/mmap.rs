@@ -21,10 +21,8 @@ impl WALSegmentFileWriteHandle {
     pub async fn new(file: tokio::fs::File) -> errors::Result<Self> {
         let mmap = unsafe {
             MmapMut::map_mut(&file).map_err(|e| {
-                errors::Errors::WALSegmentFileOpenError(format!(
-                    "Failed to mmap WAL segment file: {}",
-                    e
-                ))
+                errors::Errors::new(errors::ErrorCodes::WALSegmentFileOpenError)
+                    .with_message(format!("Failed to mmap WAL segment file: {}", e))
             })?
         };
 
@@ -33,7 +31,8 @@ impl WALSegmentFileWriteHandle {
 
     pub fn flush(&self) -> errors::Result<()> {
         self.mmap.flush().map_err(|e| {
-            errors::Errors::WALRecordWriteError(format!("Failed to flush WAL segment mmap: {}", e))
+            errors::Errors::new(errors::ErrorCodes::WALRecordWriteError)
+                .with_message(format!("Failed to flush WAL segment mmap: {}", e))
         })?;
         Ok(())
     }

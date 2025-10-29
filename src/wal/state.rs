@@ -22,15 +22,16 @@ impl WALGlobalState {
         let wal_state_path = base_path.join(WAL_STATE_PATH);
 
         if !wal_state_path.exists() {
-            return Err(errors::Errors::WALStateReadError(
-                "WAL state file does not exist".to_string(),
-            ));
+            return Err(errors::Errors::new(errors::ErrorCodes::WALStateReadError)
+                .with_message("WAL state file does not exist".to_string()));
         }
 
-        let data = std::fs::read(wal_state_path)
-            .map_err(|e| errors::Errors::WALStateReadError(e.to_string()))?;
-        let state = serde_json::from_slice(&data)
-            .map_err(|e| errors::Errors::WALStateDecodeError(e.to_string()))?;
+        let data = std::fs::read(wal_state_path).map_err(|e| {
+            errors::Errors::new(errors::ErrorCodes::WALStateReadError).with_message(e.to_string())
+        })?;
+        let state = serde_json::from_slice(&data).map_err(|e| {
+            errors::Errors::new(errors::ErrorCodes::WALStateDecodeError).with_message(e.to_string())
+        })?;
 
         Ok(state)
     }
@@ -44,7 +45,10 @@ impl WALGlobalState {
             .write(true)
             .open(wal_state_path)
             .await
-            .map_err(|e| errors::Errors::WALStateWriteError(e.to_string()))?;
+            .map_err(|e| {
+                errors::Errors::new(errors::ErrorCodes::WALStateWriteError)
+                    .with_message(e.to_string())
+            })?;
 
         Ok(file)
     }
@@ -56,30 +60,36 @@ impl WALGlobalState {
             .write(true)
             .open(wal_state_path)
             .await
-            .map_err(|e| errors::Errors::WALStateWriteError(e.to_string()))?;
+            .map_err(|e| {
+                errors::Errors::new(errors::ErrorCodes::WALStateWriteError)
+                    .with_message(e.to_string())
+            })?;
 
         Ok(file)
     }
 
     // Save the WAL global state to a file
     pub async fn save(&self, file_handle: &mut tokio::fs::File) -> errors::Result<()> {
-        let data = serde_json::to_vec(self)
-            .map_err(|e| errors::Errors::WALRecordEncodeError(e.to_string()))?;
+        let data = serde_json::to_vec(self).map_err(|e| {
+            errors::Errors::new(errors::ErrorCodes::WALRecordEncodeError)
+                .with_message(e.to_string())
+        })?;
 
         file_handle
             .seek(std::io::SeekFrom::Start(0))
             .await
-            .map_err(|e| errors::Errors::WALStateWriteError(e.to_string()))?;
+            .map_err(|e| {
+                errors::Errors::new(errors::ErrorCodes::WALStateWriteError)
+                    .with_message(e.to_string())
+            })?;
 
-        file_handle
-            .write_all(&data)
-            .await
-            .map_err(|e| errors::Errors::WALStateWriteError(e.to_string()))?;
+        file_handle.write_all(&data).await.map_err(|e| {
+            errors::Errors::new(errors::ErrorCodes::WALStateWriteError).with_message(e.to_string())
+        })?;
 
-        file_handle
-            .set_len(data.len() as u64)
-            .await
-            .map_err(|e| errors::Errors::WALStateWriteError(e.to_string()))?;
+        file_handle.set_len(data.len() as u64).await.map_err(|e| {
+            errors::Errors::new(errors::ErrorCodes::WALStateWriteError).with_message(e.to_string())
+        })?;
 
         Ok(())
     }

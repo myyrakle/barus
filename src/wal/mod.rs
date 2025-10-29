@@ -52,8 +52,10 @@ impl WALManager {
         // 1. create WAL directory if not exists
         let wal_dir_path = manager.base_path.join(WAL_DIRECTORY);
         if !wal_dir_path.exists() {
-            std::fs::create_dir_all(&wal_dir_path)
-                .map_err(|e| errors::Errors::WALInitializationError(e.to_string()))?;
+            std::fs::create_dir_all(&wal_dir_path).map_err(|e| {
+                errors::Errors::new(errors::ErrorCodes::WALInitializationError)
+                    .with_message(e.to_string())
+            })?;
         }
 
         // 2. create WAL state file if not exists
@@ -68,8 +70,10 @@ impl WALManager {
         }
 
         // 3. create initial segment file if wal directory is empty
-        let entries = std::fs::read_dir(&wal_dir_path)
-            .map_err(|e| errors::Errors::WALInitializationError(e.to_string()))?;
+        let entries = std::fs::read_dir(&wal_dir_path).map_err(|e| {
+            errors::Errors::new(errors::ErrorCodes::WALInitializationError)
+                .with_message(e.to_string())
+        })?;
 
         if entries.count() == 0 {
             let segment_file_name: String = (&WALSegmentID::new(0u64)).into();
@@ -83,19 +87,16 @@ impl WALManager {
                 .open(&segment_file_path)
                 .await
                 .map_err(|e| {
-                    errors::Errors::WALSegmentFileOpenError(format!(
-                        "Failed to open WAL segment file: {}",
-                        e
-                    ))
+                    errors::Errors::new(errors::ErrorCodes::WALSegmentFileOpenError)
+                        .with_message(format!("Failed to open WAL segment file: {}", e))
                 })?;
 
             file_resize_and_set_zero(&mut file, WAL_SEGMENT_SIZE)
                 .await
                 .map_err(|e| {
-                    errors::Errors::WALSegmentFileOpenError(format!(
-                        "Failed to set length for initial WAL segment file: {}",
-                        e
-                    ))
+                    errors::Errors::new(errors::ErrorCodes::WALSegmentFileOpenError).with_message(
+                        format!("Failed to set length for initial WAL segment file: {}", e),
+                    )
                 })?;
         }
 
@@ -132,10 +133,8 @@ impl WALManager {
                 .open(&segment_file_path)
                 .await
                 .map_err(|e| {
-                    errors::Errors::WALSegmentFileOpenError(format!(
-                        "Failed to open WAL segment file: {}",
-                        e
-                    ))
+                    errors::Errors::new(errors::ErrorCodes::WALSegmentFileOpenError)
+                        .with_message(format!("Failed to open WAL segment file: {}", e))
                 })?;
 
             *manager.wal_write_handles.lock().await = WALSegmentFileWriteHandle::new(file).await?;
@@ -166,7 +165,8 @@ impl WALManager {
             let mut state_handles = self.wal_state_write_handles.lock().await;
 
             let file = state_handles.state_file.as_mut().ok_or_else(|| {
-                errors::Errors::WALStateWriteError("WAL state file is not opened".to_string())
+                errors::Errors::new(errors::ErrorCodes::WALStateWriteError)
+                    .with_message("WAL state file is not opened".to_string())
             })?;
 
             state.save(file).await?;
@@ -232,7 +232,10 @@ impl WALManager {
                     .await
                     .or_else(|e| match e.kind() {
                         std::io::ErrorKind::NotFound => Ok(()),
-                        _ => Err(errors::Errors::WALSegmentFileDeleteError(format!(
+                        _ => Err(errors::Errors::new(
+                            errors::ErrorCodes::WALSegmentFileDeleteError,
+                        )
+                        .with_message(format!(
                             "Failed to delete WAL segment file {}: {}",
                             segment_file, e
                         ))),
@@ -249,10 +252,8 @@ impl WALManager {
 
         let file_total_size: u64 = std::fs::read_dir(&wal_dir)
             .map_err(|e| {
-                errors::Errors::WALSegmentFileOpenError(format!(
-                    "Failed to read WAL directory: {}",
-                    e
-                ))
+                errors::Errors::new(errors::ErrorCodes::WALSegmentFileOpenError)
+                    .with_message(format!("Failed to read WAL directory: {}", e))
             })?
             .filter_map(|entry| {
                 entry.ok().and_then(|e| {
@@ -277,9 +278,10 @@ impl WALManager {
         let mut write_state = write_mutex.lock().await;
 
         if write_state.is_empty() {
-            return Err(errors::Errors::WALSegmentFileOpenError(
-                "Current WAL segment file is not opened".to_string(),
-            ));
+            return Err(
+                errors::Errors::new(errors::ErrorCodes::WALSegmentFileOpenError)
+                    .with_message("Current WAL segment file is not opened".to_string()),
+            );
         }
 
         let mut wal_state = { self.wal_state.lock().await.clone() };
@@ -342,10 +344,8 @@ impl WALManager {
         // 1. 모든 세그먼트 파일 읽기 (파일만 필터링해서 파일명 반환)
         let mut segment_files: Vec<_> = std::fs::read_dir(&wal_dir)
             .map_err(|e| {
-                errors::Errors::WALSegmentFileOpenError(format!(
-                    "Failed to read WAL directory: {}",
-                    e
-                ))
+                errors::Errors::new(errors::ErrorCodes::WALSegmentFileOpenError)
+                    .with_message(format!("Failed to read WAL directory: {}", e))
             })?
             .filter_map(|entry| {
                 entry.ok().and_then(|e| {
@@ -374,10 +374,8 @@ impl WALManager {
         let segment_file_path = self.base_path.join(WAL_DIRECTORY).join(segment_file);
 
         let bytes = tokio::fs::read(&segment_file_path).await.map_err(|e| {
-            errors::Errors::WALSegmentFileOpenError(format!(
-                "Failed to read WAL segment file: {}",
-                e
-            ))
+            errors::Errors::new(errors::ErrorCodes::WALSegmentFileOpenError)
+                .with_message(format!("Failed to read WAL segment file: {}", e))
         })?;
 
         let mut records = vec![];
@@ -439,10 +437,8 @@ impl WALManager {
             .open(&new_segment_file_path)
             .await
             .map_err(|e| {
-                errors::Errors::WALSegmentFileOpenError(format!(
-                    "Failed to create new WAL segment file: {}",
-                    e
-                ))
+                errors::Errors::new(errors::ErrorCodes::WALSegmentFileOpenError)
+                    .with_message(format!("Failed to create new WAL segment file: {}", e))
             })?;
 
         file_resize_and_set_zero(&mut file, WAL_SEGMENT_SIZE).await?;

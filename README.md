@@ -34,3 +34,4 @@ curl -X DELETE -H "Content-Type: application/json" http://localhost:53000/tables
 - env:BARUS_GRPC_PORT = gRPC server port (default value: 53001)
 - env:BARUS_DATA_DIR = database base directory (default value: "data")
 - env:RUST_LOG = log level (default value: info)
+- env:RUST_BACKTRACE = backtrace enable flag. 1=enabled, 0=disabled. (default value: 1)

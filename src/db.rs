@@ -63,10 +63,10 @@ impl DBEngine {
             if e.kind() == std::io::ErrorKind::AlreadyExists {
                 Ok(())
             } else {
-                Err(errors::Errors::WALInitializationError(format!(
-                    "Failed to create database directory: {}",
-                    e
-                )))
+                Err(
+                    errors::Errors::new(errors::ErrorCodes::WALInitializationError)
+                        .with_message(format!("Failed to create database directory: {}", e)),
+                )
             }
         })?;
 
@@ -280,10 +280,8 @@ impl DBEngine {
 
         match memtable_result {
             MemtableGetValueResult::Deleted => {
-                return Err(errors::Errors::ValueNotFound(format!(
-                    "Key not found (deleted): {}",
-                    key
-                )));
+                return Err(errors::Errors::new(errors::ErrorCodes::ValueNotFound)
+                    .with_message(format!("Key not found (deleted): {}", key)));
             }
             MemtableGetValueResult::Found(value) => {
                 return Ok(GetResponse { value });
@@ -299,10 +297,8 @@ impl DBEngine {
         // 3. Try to get from flushing Memtable
         match memtable_result {
             MemtableGetValueResult::Deleted => {
-                return Err(errors::Errors::ValueNotFound(format!(
-                    "Key not found (deleted): {}",
-                    key
-                )));
+                return Err(errors::Errors::new(errors::ErrorCodes::ValueNotFound)
+                    .with_message(format!("Key not found (deleted): {}", key)));
             }
             MemtableGetValueResult::Found(value) => {
                 return Ok(GetResponse { value });
@@ -316,10 +312,8 @@ impl DBEngine {
 
             match disktable_result {
                 DisktableGetResult::Found(value) => Ok(GetResponse { value }),
-                _ => Err(errors::Errors::ValueNotFound(format!(
-                    "Key not found: {}",
-                    key
-                ))),
+                _ => Err(errors::Errors::new(errors::ErrorCodes::ValueNotFound)
+                    .with_message(format!("Key not found: {}", key))),
             }
         }
     }
