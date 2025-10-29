@@ -1,6 +1,5 @@
 use std::backtrace::Backtrace;
 
-#[derive(Debug)]
 pub struct Errors {
     pub error_code: ErrorCodes,
     pub backtrace: Backtrace,
@@ -128,6 +127,24 @@ impl std::fmt::Display for Errors {
             write!(f, "{}: {}", self.error_code, msg)
         } else {
             write!(f, "{}", self.error_code)
+        }
+    }
+}
+
+impl std::fmt::Debug for Errors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(msg) = &self.message {
+            write!(
+                f,
+                "error_code: {:?}\n  message: {}\n  backtrace: {}",
+                self.error_code, msg, self.backtrace
+            )
+        } else {
+            write!(
+                f,
+                "error_code: {:?}\n  backtrace: {} }}",
+                self.error_code, self.backtrace
+            )
         }
     }
 }

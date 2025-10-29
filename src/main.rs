@@ -34,7 +34,7 @@ fn get_data_dir() -> PathBuf {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> errors::Result<()> {
     setup_logging();
 
     log::info!("Initializing DB Engine...");
