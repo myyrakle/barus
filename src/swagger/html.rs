@@ -4,7 +4,7 @@ pub const DOCS_INDEX_HTML: &str = r###"
     <head>
     <link type="text/css" rel="stylesheet" href="/docs/swagger-ui.css">
     <!--<link rel="shortcut icon" href="https://fastapi.tiangolo.com/img/favicon.png">-->
-    <title>Rupring - Swagger UI</title>
+    <title>Barus - Swagger UI</title>
     </head>
     <body>
     <div id="swagger-ui">
