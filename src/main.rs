@@ -8,6 +8,7 @@ pub mod http;
 pub mod lock;
 pub mod memtable;
 pub mod os;
+pub mod swagger;
 pub mod system;
 pub mod validate;
 pub mod wal;

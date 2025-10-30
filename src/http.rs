@@ -4,13 +4,13 @@ use axum::{
     Extension, Json,
     extract::{Path, Query},
     response::{IntoResponse, Response},
-    routing::{delete, post, put},
+    routing::{delete, get, post, put},
 };
 
-use crate::{config::HTTP_PORT, db::DBEngine, errors::ErrorCodes};
+use crate::{config::HTTP_PORT, db::DBEngine, errors::ErrorCodes, swagger};
 
 pub async fn run_server(db_engine: Arc<DBEngine>) {
-    use axum::{Router, routing::get};
+    use axum::Router;
 
     let app = Router::new()
         .route("/", get(root))
@@ -25,6 +25,7 @@ pub async fn run_server(db_engine: Arc<DBEngine>) {
         .route("/tables/{table}/value", delete(delete_value))
         .route("/wal/flush", post(flush_wal))
         .route("/memtable/flush", post(trigger_memtable_flush))
+        .nest("/docs", swagger::axum::router())
         .layer(axum::extract::Extension(db_engine));
 
     let addr = format!("0.0.0.0:{}", *HTTP_PORT);
