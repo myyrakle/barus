@@ -6,15 +6,15 @@ use super::favicon::{FAVICON_16, FAVICON_32};
 use super::{html, swagger_json, swagger_ui_bundle, swagger_ui_css};
 
 pub fn router() -> Router {
-    let swagger_router = Router::new()
+    
+
+    Router::new()
         .route("/", get(get_docs))
         .route("/favicon-32x32.png", get(get_favicon32))
         .route("/favicon-16x16.png", get(get_favicon16))
         .route("/swagger.json", get(get_swagger_json))
         .route("/swagger-ui-bundle.js", get(get_swagger_ui_bundle))
-        .route("/swagger-ui.css", get(get_swagger_ui_css));
-
-    swagger_router
+        .route("/swagger-ui.css", get(get_swagger_ui_css))
 }
 
 async fn get_docs(_: axum::http::Request<axum::body::Body>) -> impl IntoResponse {
