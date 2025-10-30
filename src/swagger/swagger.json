@@ -1,0 +1,496 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Barus API",
+    "description": "Key-Value Database REST API",
+    "version": "0.0.2"
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Development server"
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "Root endpoint",
+        "tags": ["Health"],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "example": "OK"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/status": {
+      "get": {
+        "summary": "Get database status",
+        "description": "Returns current database status including table count, memtable size, and WAL size",
+        "tags": ["Database"],
+        "responses": {
+          "200": {
+            "description": "Database status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "table_count": {
+                      "type": "integer",
+                      "description": "Number of tables in the database"
+                    },
+                    "memtable_size": {
+                      "type": "integer",
+                      "description": "Size of the memtable in bytes"
+                    },
+                    "wal_total_size": {
+                      "type": "integer",
+                      "description": "Total size of WAL files in bytes"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/tables": {
+      "get": {
+        "summary": "List all tables",
+        "tags": ["Tables"],
+        "responses": {
+          "200": {
+            "description": "List of tables",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tables": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "table_name": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/tables/{table}": {
+      "get": {
+        "summary": "Get table information",
+        "tags": ["Tables"],
+        "parameters": [
+          {
+            "name": "table",
+            "in": "path",
+            "required": true,
+            "description": "Table name",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Table information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "table_name": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid table name"
+          },
+          "404": {
+            "description": "Table not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a new table",
+        "tags": ["Tables"],
+        "parameters": [
+          {
+            "name": "table",
+            "in": "path",
+            "required": true,
+            "description": "Table name",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Table created successfully",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid table name"
+          },
+          "409": {
+            "description": "Table already exists"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a table",
+        "tags": ["Tables"],
+        "parameters": [
+          {
+            "name": "table",
+            "in": "path",
+            "required": true,
+            "description": "Table name",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Table deleted successfully",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid table name"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/tables/{table}/truncate": {
+      "post": {
+        "summary": "Truncate a table",
+        "description": "Remove all entries from a table",
+        "tags": ["Tables"],
+        "parameters": [
+          {
+            "name": "table",
+            "in": "path",
+            "required": true,
+            "description": "Table name",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Table truncated successfully",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid table name"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/tables/{table}/value": {
+      "get": {
+        "summary": "Get value by key",
+        "tags": ["Values"],
+        "parameters": [
+          {
+            "name": "table",
+            "in": "path",
+            "required": true,
+            "description": "Table name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "description": "Key to retrieve",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Value found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request - missing key parameter or invalid table name"
+          },
+          "404": {
+            "description": "Table or value not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "put": {
+        "summary": "Store a key-value pair",
+        "tags": ["Values"],
+        "parameters": [
+          {
+            "name": "table",
+            "in": "path",
+            "required": true,
+            "description": "Table name",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "description": "Key to store"
+                  },
+                  "value": {
+                    "type": "string",
+                    "description": "Value to store"
+                  }
+                },
+                "required": ["key", "value"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Value stored successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Stored"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request - missing key/value or invalid table name"
+          },
+          "404": {
+            "description": "Table not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a key-value pair",
+        "tags": ["Values"],
+        "parameters": [
+          {
+            "name": "table",
+            "in": "path",
+            "required": true,
+            "description": "Table name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "description": "Key to delete",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Value deleted successfully",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "example": "Deleted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request - missing key parameter or invalid table name"
+          },
+          "404": {
+            "description": "Table not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/wal/flush": {
+      "post": {
+        "summary": "Flush WAL",
+        "description": "Flush Write-Ahead Log to disk",
+        "tags": ["Maintenance"],
+        "responses": {
+          "200": {
+            "description": "WAL flushed successfully",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/memtable/flush": {
+      "post": {
+        "summary": "Flush memtable",
+        "description": "Trigger memtable flush to disk",
+        "tags": ["Maintenance"],
+        "responses": {
+          "200": {
+            "description": "Memtable flushed successfully",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Memtable flush already in progress"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Health check endpoints"
+    },
+    {
+      "name": "Database",
+      "description": "Database status operations"
+    },
+    {
+      "name": "Tables",
+      "description": "Table operations"
+    },
+    {
+      "name": "Values",
+      "description": "Key-value operations"
+    },
+    {
+      "name": "Maintenance",
+      "description": "Maintenance operations"
+    }
+  ]
+}
