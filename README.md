@@ -12,6 +12,8 @@ The simplest way to start a server is to use Docker.
 sudo docker run -p 53000:53000 -p 53001:53001 myyrakle/barus:v0.0.2
 ```
 
+Here's how it works:
+
 ```bash
 curl http://localhost:53000/status
 
@@ -27,6 +29,11 @@ curl -X GET -H "Content-Type: application/json" http://localhost:53000/tables/fo
 # delete value
 curl -X DELETE -H "Content-Type: application/json" http://localhost:53000/tables/foo/value?key=1111
 ```
+
+## APIs
+
+- When using HTTP, Swagger documentation is automatically generated. Access the documentation by visiting `http://localhost:53000/docs`.
+- When using gRPC, there is a [proto file](./proto/barus.proto).
 
 ## Configuration
 
