@@ -3,6 +3,7 @@
 ![](https://img.shields.io/badge/language-Rust-red) ![](https://img.shields.io/badge/version-0.0.2-brightgreen) [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/myyrakle/barus/blob/master/LICENSE)
 
 - lightweight key/value storage
+- This database is optimized for high write throughput. In a typical computing environment, it can handle 60,000-70,000 writes per second.
 
 ## Get Started
 
