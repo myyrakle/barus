@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-pub const MEMTABLE_DEFAULT_CAPACITY: usize = 100000;
+use std::collections::BTreeMap;
 
 // Value type stored in the Memtable
 #[derive(Clone, Debug)]
@@ -11,7 +9,7 @@ pub struct MemtableValue {
 // In-memory key-value store
 #[derive(Debug)]
 pub struct Memtable {
-    pub(crate) kv_map: HashMap<String, MemtableValue>,
+    pub(crate) kv_map: BTreeMap<String, MemtableValue>,
 }
 
 impl Memtable {
@@ -38,7 +36,7 @@ impl Memtable {
     // Create a new empty Memtable
     pub fn new() -> Self {
         Self {
-            kv_map: HashMap::with_capacity(MEMTABLE_DEFAULT_CAPACITY),
+            kv_map: BTreeMap::new(),
         }
     }
 
